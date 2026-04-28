@@ -52,7 +52,13 @@ impl ContextBuilder {
         signal: &PreSignal,
         external: ExternalSnapshot,
     ) -> MarketContext {
-        let price = state.last_candle().map(|c| c.close).unwrap_or(0.0);
+        let price = state
+            .order_book
+            .best_bid()
+            .zip(state.order_book.best_ask())
+            .map(|(b, a)| (b + a) / 2.0)
+            .or_else(|| state.last_candle().map(|c| c.close))
+            .unwrap_or(0.0);
         MarketContext {
             symbol: state.symbol.clone(),
             current_price: price,
