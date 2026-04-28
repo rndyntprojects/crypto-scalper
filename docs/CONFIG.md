@@ -248,6 +248,7 @@ by `[control]` settings.
 | `ARIA_LLM_PROVIDER` | overrides `[llm] provider` |
 | `ARIA_LLM_MODEL` | overrides `[llm] model` |
 | `ARIA_LLM_API_BASE` | overrides `[llm] api_base` |
+| `ARIA_MANAGER_ENABLED` | overrides `[manager] enabled` (`true` / `false`) |
 | `ARIA_MANAGER_PROVIDER` | overrides `[manager] provider` |
 | `ARIA_MANAGER_MODEL` | overrides `[manager] model` |
 | `ARIA_MANAGER_API_BASE` | overrides `[manager] api_base` |

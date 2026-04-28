@@ -389,6 +389,16 @@ impl Config {
                 self.llm.api_base = v;
             }
         }
+        // Manager LLM enabled toggle. Accepts truthy ("1", "true", "yes",
+        // "on") and falsy ("0", "false", "no", "off"); anything else is
+        // ignored.
+        if let Ok(v) = std::env::var("ARIA_MANAGER_ENABLED") {
+            match v.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => self.manager.enabled = true,
+                "0" | "false" | "no" | "off" => self.manager.enabled = false,
+                _ => {}
+            }
+        }
         // Manager LLM provider/model/api_base overrides.
         if let Ok(v) = std::env::var("ARIA_MANAGER_PROVIDER") {
             if !v.is_empty() {
@@ -617,6 +627,7 @@ equity_usd = 1000.0
             "ARIA_LLM_MODEL",
             "ARIA_LLM_API_BASE",
             "ARIA_MANAGER_MODEL",
+            "ARIA_MANAGER_ENABLED",
         ]);
         std::env::set_var("ARIA_LLM_PROVIDER", "openrouter");
         std::env::set_var("ARIA_LLM_MODEL", "deepseek/deepseek-chat");
@@ -625,6 +636,7 @@ equity_usd = 1000.0
             "https://api.deepseek.com/v1/chat/completions",
         );
         std::env::set_var("ARIA_MANAGER_MODEL", "anthropic/claude-3.5-sonnet");
+        std::env::set_var("ARIA_MANAGER_ENABLED", "true");
 
         let p = std::path::PathBuf::from("config/default.toml");
         let cfg = Config::load(&p, None).expect("default config must parse");
@@ -636,5 +648,6 @@ equity_usd = 1000.0
             "https://api.deepseek.com/v1/chat/completions"
         );
         assert_eq!(cfg.manager.model, "anthropic/claude-3.5-sonnet");
+        assert!(cfg.manager.enabled, "ARIA_MANAGER_ENABLED=true must flip");
     }
 }
