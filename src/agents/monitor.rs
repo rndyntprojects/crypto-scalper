@@ -7,12 +7,21 @@ use crate::agents::messages::{AgentEvent, BrainOutcome, ManagerAction};
 use crate::agents::MessageBus;
 use crate::llm::engine::Decision;
 use crate::monitoring::{MetricsState, TelegramNotifier, TradeJournal, TradeRecord};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use parking_lot::Mutex as PlMutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
+
+/// Per-symbol snapshot used by the status log so the operator can see
+/// current price and how stale the last tick is.
+#[derive(Default, Clone, Copy)]
+struct PriceSnapshot {
+    price: f64,
+    ts: Option<DateTime<Utc>>,
+    ticks: u64,
+}
 
 /// Running counters used by the periodic status log so the operator
 /// can see at a glance that the bot is actually receiving market
@@ -20,7 +29,7 @@ use tracing::{info, warn};
 /// at a time on 5m timeframes).
 #[derive(Default)]
 struct StatusCounters {
-    ticks: HashMap<String, u64>,
+    prices: HashMap<String, PriceSnapshot>,
     candles: HashMap<String, u64>,
     signals: u64,
     brain_calls: u64,
@@ -40,6 +49,38 @@ fn fmt_counts(map: &HashMap<String, u64>) -> String {
         .map(|(s, n)| format!("{}:{}", s, n))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// Trim the common "USDT" suffix so the log stays readable: BTCUSDT -> BTC.
+fn short_sym(s: &str) -> &str {
+    s.strip_suffix("USDT").unwrap_or(s)
+}
+
+/// Render the price snapshot map. Includes price, staleness (how old
+/// the last tick is in seconds at log-time) and tick count.
+fn fmt_prices(map: &HashMap<String, PriceSnapshot>, now: DateTime<Utc>) -> String {
+    if map.is_empty() {
+        return "-".to_string();
+    }
+    let mut entries: Vec<(&String, &PriceSnapshot)> = map.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+        .iter()
+        .map(|(sym, snap)| {
+            let age = snap
+                .ts
+                .map(|t| (now - t).num_seconds().max(0))
+                .unwrap_or(-1);
+            format!(
+                "{}={:.2}({}s/{}t)",
+                short_sym(sym),
+                snap.price,
+                age,
+                snap.ticks,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn spawn(
@@ -66,8 +107,9 @@ pub fn spawn(
             loop {
                 tick.tick().await;
                 let c = counters.lock();
+                let now = Utc::now();
                 info!(
-                    ticks = %fmt_counts(&c.ticks),
+                    prices = %fmt_prices(&c.prices, now),
                     candles = %fmt_counts(&c.candles),
                     signals = c.signals,
                     brain = c.brain_calls,
@@ -85,8 +127,12 @@ pub fn spawn(
         while let Ok(ev) = rx.recv().await {
             match ev {
                 AgentEvent::Shutdown => break,
-                AgentEvent::Tick { symbol, .. } => {
-                    *counters.lock().ticks.entry(symbol).or_insert(0) += 1;
+                AgentEvent::Tick { symbol, trade } => {
+                    let mut c = counters.lock();
+                    let snap = c.prices.entry(symbol).or_default();
+                    snap.price = trade.price;
+                    snap.ts = Some(trade.ts);
+                    snap.ticks += 1;
                 }
                 AgentEvent::CandleClosed { symbol, .. } => {
                     *counters.lock().candles.entry(symbol).or_insert(0) += 1;
