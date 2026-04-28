@@ -60,7 +60,8 @@ Configuration is layered:
 2. `config/<overlay>.toml` — optional overlay pointed at by `ARIA_CONFIG_OVERLAY`.
 3. Environment variables — override any secret:
    - `BINANCE_API_KEY`, `BINANCE_API_SECRET`
-   - `ANTHROPIC_API_KEY`
+   - `OPENROUTER_API_KEY` (default LLM provider)
+   - `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `TOGETHER_API_KEY` / `GROQ_API_KEY` — used when `[llm.provider]` is set accordingly
    - `CRYPTOPANIC_API_KEY`, `LUNARCRUSH_API_KEY`,
      `GLASSNODE_API_KEY`, `WHALE_ALERT_API_KEY`
    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
@@ -69,6 +70,30 @@ Provided overlays:
 
 - `config/paper.toml` — forces `run_mode=paper`, `dry_run=true`.
 - `config/production.toml` — `run_mode=live`, tighter risk caps.
+- `config/llm-anthropic.toml` — switch LLM to Anthropic native.
+- `config/llm-openrouter-cheap.toml` — pick a cheap or free OpenRouter model.
+
+### LLM provider matrix
+
+| Provider | `provider =` | `api_base` | Auth header | Env var |
+|---|---|---|---|---|
+| **OpenRouter** *(default)* | `"openrouter"` | `https://openrouter.ai/api/v1/chat/completions` | `Authorization: Bearer …` | `OPENROUTER_API_KEY` |
+| Anthropic native | `"anthropic"` | `https://api.anthropic.com/v1/messages` | `x-api-key: …` | `ANTHROPIC_API_KEY` |
+| OpenAI | `"openai"` | `https://api.openai.com/v1/chat/completions` | `Authorization: Bearer …` | `OPENAI_API_KEY` |
+| Together | `"together"` | `https://api.together.xyz/v1/chat/completions` | `Authorization: Bearer …` | `TOGETHER_API_KEY` |
+| Groq | `"groq"` | `https://api.groq.com/openai/v1/chat/completions` | `Authorization: Bearer …` | `GROQ_API_KEY` |
+
+OpenRouter sample models (price ≈ in/out per 1M tokens):
+
+| Model | Cost | Notes |
+|---|---|---|
+| `anthropic/claude-3.5-haiku` | $0.80 / $4 | Spec-default (smart, fast) |
+| `anthropic/claude-3.5-sonnet` | $3 / $15 | Best quality |
+| `openai/gpt-4o-mini` | $0.15 / $0.60 | Solid generalist |
+| `deepseek/deepseek-chat` | $0.14 / $0.28 | Cheap & sharp on TA reasoning |
+| `meta-llama/llama-3.3-70b-instruct` | $0.13 / $0.39 | Fast |
+| `google/gemini-2.0-flash-exp:free` | **FREE** | Rate-limited, great for paper-mode testing |
+| `qwen/qwen-2.5-72b-instruct:free` | **FREE** | Rate-limited |
 
 Activate with:
 

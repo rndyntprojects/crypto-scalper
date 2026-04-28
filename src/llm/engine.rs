@@ -49,14 +49,37 @@ pub struct ContextScore {
     pub composite_score: u8,
 }
 
+/// LLM provider — wire format differs between Anthropic-native and the
+/// OpenAI-compatible APIs (OpenRouter, OpenAI, Together, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmProvider {
+    Anthropic,
+    OpenAiCompatible,
+}
+
+impl LlmProvider {
+    pub fn parse(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "anthropic" | "claude" => Self::Anthropic,
+            // "openrouter", "openai", "together", "groq", ... — all share the
+            // OpenAI chat-completions wire format.
+            _ => Self::OpenAiCompatible,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LlmEngineConfig {
+    pub provider: LlmProvider,
     pub api_key: String,
     pub api_base: String,
     pub model: String,
     pub timeout_secs: u64,
     pub max_tokens: u32,
     pub fallback_ta_threshold: u8,
+    /// Optional HTTP-Referer/X-Title for OpenRouter rankings (free).
+    pub http_referer: Option<String>,
+    pub http_app_title: Option<String>,
 }
 
 pub struct LlmEngine {
@@ -124,6 +147,14 @@ impl LlmEngine {
     }
 
     async fn call_api(&self, prompt: &str) -> Result<TradeDecision> {
+        match self.cfg.provider {
+            LlmProvider::Anthropic => self.call_anthropic(prompt).await,
+            LlmProvider::OpenAiCompatible => self.call_openai_compat(prompt).await,
+        }
+    }
+
+    /// Anthropic Messages API — `POST /v1/messages` with `x-api-key`.
+    async fn call_anthropic(&self, prompt: &str) -> Result<TradeDecision> {
         let body = serde_json::json!({
             "model": self.cfg.model,
             "max_tokens": self.cfg.max_tokens,
@@ -147,7 +178,46 @@ impl LlmEngine {
             .and_then(|c| c.get(0))
             .and_then(|b| b.get("text"))
             .and_then(|t| t.as_str())
-            .ok_or_else(|| ScalperError::Llm("empty response".into()))?;
+            .ok_or_else(|| ScalperError::Llm(format!("empty response: {resp}")))?;
+
+        info!(llm_raw = %text, "LLM response");
+        parse_trade_decision(text)
+    }
+
+    /// OpenAI-compatible chat completions API — used by OpenRouter, OpenAI,
+    /// Together, Groq, etc. `POST /chat/completions` with bearer auth.
+    async fn call_openai_compat(&self, prompt: &str) -> Result<TradeDecision> {
+        let body = serde_json::json!({
+            "model": self.cfg.model,
+            "max_tokens": self.cfg.max_tokens,
+            "temperature": 0.2,
+            "messages": [
+                { "role": "system", "content": ARIA_SYSTEM_PROMPT },
+                { "role": "user",   "content": prompt }
+            ]
+        });
+
+        let mut req = self
+            .client
+            .post(&self.cfg.api_base)
+            .bearer_auth(&self.cfg.api_key)
+            .json(&body);
+        if let Some(ref r) = self.cfg.http_referer {
+            req = req.header("HTTP-Referer", r);
+        }
+        if let Some(ref t) = self.cfg.http_app_title {
+            req = req.header("X-Title", t);
+        }
+
+        let resp: serde_json::Value = req.send().await?.json().await?;
+
+        let text = resp
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| ScalperError::Llm(format!("empty response: {resp}")))?;
 
         info!(llm_raw = %text, "LLM response");
         parse_trade_decision(text)

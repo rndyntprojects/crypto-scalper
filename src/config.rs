@@ -62,6 +62,13 @@ pub struct LlmCfg {
     pub min_confidence: u8,
     pub fallback_ta_threshold: u8,
     pub max_tokens: u32,
+    /// Optional HTTP-Referer for OpenRouter (used for analytics & rate-limit
+    /// boosts on free models).
+    #[serde(default)]
+    pub http_referer: String,
+    /// Optional X-Title shown in OpenRouter dashboards.
+    #[serde(default)]
+    pub http_app_title: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -150,8 +157,37 @@ impl Config {
         if let Ok(v) = std::env::var("BINANCE_API_SECRET") {
             self.exchange.api_secret = v;
         }
-        if let Ok(v) = std::env::var("ANTHROPIC_API_KEY") {
-            self.llm.api_key = v;
+        // LLM key — checked in priority order. The first non-empty match wins,
+        // so a user can have multiple keys exported simultaneously and the
+        // active provider just picks its own.
+        let llm_env_var = match self.llm.provider.to_ascii_lowercase().as_str() {
+            "anthropic" | "claude" => "ANTHROPIC_API_KEY",
+            "openai" => "OPENAI_API_KEY",
+            "together" => "TOGETHER_API_KEY",
+            "groq" => "GROQ_API_KEY",
+            // openrouter, custom, etc.
+            _ => "OPENROUTER_API_KEY",
+        };
+        if let Ok(v) = std::env::var(llm_env_var) {
+            if !v.is_empty() {
+                self.llm.api_key = v;
+            }
+        }
+        // Fallbacks for users who export a generic LLM key.
+        if self.llm.api_key.is_empty() {
+            for k in [
+                "OPENROUTER_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY",
+                "LLM_API_KEY",
+            ] {
+                if let Ok(v) = std::env::var(k) {
+                    if !v.is_empty() {
+                        self.llm.api_key = v;
+                        break;
+                    }
+                }
+            }
         }
         if let Ok(v) = std::env::var("CRYPTOPANIC_API_KEY") {
             self.feeds.cryptopanic_api_key = v;
@@ -188,12 +224,14 @@ impl Config {
                 "risk.risk_per_trade_pct must be in (0, 5]".into(),
             ));
         }
-        if self.mode.run_mode == "live" && !self.mode.dry_run
-            && (self.exchange.api_key.is_empty() || self.exchange.api_secret.is_empty()) {
-                return Err(ScalperError::Config(
-                    "live mode requires BINANCE_API_KEY / BINANCE_API_SECRET".into(),
-                ));
-            }
+        if self.mode.run_mode == "live"
+            && !self.mode.dry_run
+            && (self.exchange.api_key.is_empty() || self.exchange.api_secret.is_empty())
+        {
+            return Err(ScalperError::Config(
+                "live mode requires BINANCE_API_KEY / BINANCE_API_SECRET".into(),
+            ));
+        }
         Ok(())
     }
 }

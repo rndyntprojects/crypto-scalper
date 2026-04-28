@@ -26,11 +26,15 @@ active = ["mean_reversion", "ema_ribbon", "momentum", "vwap_scalp", "squeeze"]
 min_ta_confidence = 65
 
 [llm]
-provider = "anthropic"
-model    = "claude-3-5-haiku-20241022"
-api_key  = ""           # set via env ANTHROPIC_API_KEY
-api_base = "https://api.anthropic.com/v1/messages"
-timeout_secs = 5
+# Default: OpenRouter (1 key, banyak model — Claude/GPT/Gemini/DeepSeek/Qwen).
+# Ganti ke "anthropic" kalau mau pakai Anthropic native.
+provider = "openrouter"
+model    = "anthropic/claude-3.5-haiku"
+api_key  = ""                                    # env OPENROUTER_API_KEY
+api_base = "https://openrouter.ai/api/v1/chat/completions"
+http_referer   = "https://github.com/whaledecoder/crypto-scalper"
+http_app_title = "ARIA Crypto Scalper"
+timeout_secs = 8
 min_confidence = 70
 fallback_ta_threshold = 75
 max_tokens = 1024

@@ -1,0 +1,22 @@
+# Overlay: model murah / gratis via OpenRouter.
+# Aktifkan dengan:  ARIA_CONFIG_OVERLAY=config/llm-openrouter-cheap.toml ./aria
+#
+# Pilihan model (uncomment salah satu):
+[llm]
+provider = "openrouter"
+api_base = "https://openrouter.ai/api/v1/chat/completions"
+
+# DeepSeek-Chat: ~$0.14 / $0.28 per 1M tokens — pintar utk reasoning trading.
+model = "deepseek/deepseek-chat"
+
+# Llama 3.3 70B: ~$0.13 / $0.39 per 1M tokens.
+# model = "meta-llama/llama-3.3-70b-instruct"
+
+# GRATIS (rate-limited). Cocok utk testing tanpa biaya.
+# model = "google/gemini-2.0-flash-exp:free"
+# model = "qwen/qwen-2.5-72b-instruct:free"
+# model = "meta-llama/llama-3.3-70b-instruct:free"
+
+# Tetap pakai Claude tapi via OpenRouter (sama harganya dengan Anthropic native).
+# model = "anthropic/claude-3.5-haiku"
+# model = "anthropic/claude-3.5-sonnet"

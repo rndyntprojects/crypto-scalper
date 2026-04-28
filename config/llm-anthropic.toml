@@ -1,0 +1,7 @@
+# Overlay: pakai Anthropic native (bukan OpenRouter).
+# Aktifkan dengan:  ARIA_CONFIG_OVERLAY=config/llm-anthropic.toml ./aria
+[llm]
+provider = "anthropic"
+model    = "claude-3-5-haiku-20241022"
+api_base = "https://api.anthropic.com/v1/messages"
+# api_key di-resolve dari env ANTHROPIC_API_KEY.

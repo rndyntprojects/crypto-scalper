@@ -19,7 +19,7 @@ use crypto_scalper::{
         SentimentClient,
     },
     llm::{
-        engine::{LlmEngine, LlmEngineConfig},
+        engine::{LlmEngine, LlmEngineConfig, LlmProvider},
         ContextBuilder, Decision,
     },
     monitoring::{
@@ -184,13 +184,24 @@ async fn run_live(cfg: Config) -> Result<()> {
     let _metrics_handle = spawn_metrics_server(Arc::clone(&metrics), bind);
 
     // --- LLM engine ---
+    let provider = LlmProvider::parse(&cfg.llm.provider);
+    info!(
+        provider = %cfg.llm.provider,
+        model = %cfg.llm.model,
+        api_base = %cfg.llm.api_base,
+        key_set = !cfg.llm.api_key.is_empty(),
+        "llm provider configured"
+    );
     let llm = Arc::new(LlmEngine::new(LlmEngineConfig {
+        provider,
         api_key: cfg.llm.api_key.clone(),
         api_base: cfg.llm.api_base.clone(),
         model: cfg.llm.model.clone(),
         timeout_secs: cfg.llm.timeout_secs,
         max_tokens: cfg.llm.max_tokens,
         fallback_ta_threshold: cfg.llm.fallback_ta_threshold,
+        http_referer: Some(cfg.llm.http_referer.clone()).filter(|s| !s.is_empty()),
+        http_app_title: Some(cfg.llm.http_app_title.clone()).filter(|s| !s.is_empty()),
     }));
 
     // --- Feeds ---
