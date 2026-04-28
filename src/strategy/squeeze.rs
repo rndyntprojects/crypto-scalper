@@ -41,7 +41,7 @@ impl Strategy for Squeeze {
             return None;
         };
 
-        let score: f64 = (60.0_f64 + roc.abs().min(5.0) * 3.0).clamp(0.0, 100.0);
+        let score: f64 = (65.0_f64 + roc.abs().min(5.0) * 3.0).clamp(0.0, 100.0);
         let score = score as u8;
         Some(PreSignal {
             symbol: s.symbol.clone(),

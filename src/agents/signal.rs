@@ -116,6 +116,16 @@ pub fn spawn(
                         });
                     }
                 }
+                AgentEvent::ControlCommand(crate::agents::messages::ControlCommand::ResetDaily) => {
+                    // Reset session-anchored indicators (VWAP) at midnight.
+                    let mut states = states.lock().await;
+                    for state in states.values_mut() {
+                        state.vwap.reset();
+                        state.last_vwap = None;
+                        state.last_vwap_slope = None;
+                    }
+                    tracing::info!("signal: VWAP reset for new session");
+                }
                 AgentEvent::Shutdown => break,
                 _ => {}
             }

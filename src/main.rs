@@ -339,6 +339,40 @@ async fn run_agents(cfg: Config) -> Result<()> {
         });
     }
 
+    // --- Reconcile open positions from exchange on startup ---
+    // If the bot crashed mid-trade, the PositionBook is empty but the exchange
+    // may still hold open positions. Fetch them and re-seed the book so SL/TP
+    // exit checks and risk counters stay consistent.
+    if cfg.mode.run_mode == "live" {
+        match exchange.fetch_open_positions(&cfg.pairs.symbols).await {
+            Ok(snaps) if !snaps.is_empty() => {
+                let mut recon: Vec<crate::execution::Position> = Vec::new();
+                for s in &snaps {
+                    let pos = crate::execution::Position {
+                        client_id: format!("recon-{}-{}", s.symbol, s.side.as_str()),
+                        symbol: s.symbol.clone(),
+                        side: s.side,
+                        size: s.size,
+                        entry_price: s.entry_price,
+                        stop_loss: 0.0, // unknown — broker holds protective orders
+                        take_profit: 0.0,
+                        opened_at: chrono::Utc::now(),
+                        trailing_activated: false,
+                        peak_price: s.mark_price,
+                        trough_price: s.mark_price,
+                    };
+                    recon.push(pos);
+                    risk.on_position_opened();
+                }
+                let n = recon.len();
+                book.reconcile(recon);
+                warn!(count = n, "startup: reconciled open positions from exchange");
+            }
+            Ok(_) => info!("startup: no open positions to reconcile"),
+            Err(e) => warn!(error = %e, "startup: position reconciliation failed"),
+        }
+    }
+
     // --- Spawn agents ---
     let _data = crypto_scalper::agents::data::spawn(
         bus.clone(),
@@ -508,6 +542,30 @@ async fn run_agents(cfg: Config) -> Result<()> {
         manager = cfg.manager.enabled,
         "all agents spawned — runtime live"
     );
+
+    // --- Midnight daily-reset task ---
+    // Without this, RiskManager.realized_pnl_today accumulates forever
+    // and the daily loss circuit trips permanently after a bad day.
+    {
+        let bus_reset = bus.clone();
+        let risk_reset = Arc::clone(&risk);
+        tokio::spawn(async move {
+            loop {
+                let now = chrono::Utc::now();
+                let tomorrow = (now.date_naive() + chrono::Days::new(1))
+                    .and_hms_opt(0, 0, 30)
+                    .expect("valid midnight")
+                    .and_utc();
+                let secs = (tomorrow - now).num_seconds().max(1) as u64;
+                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                risk_reset.reset_daily();
+                bus_reset.publish(AgentEvent::ControlCommand(
+                    crate::agents::messages::ControlCommand::ResetDaily,
+                ));
+                tracing::info!("midnight UTC: daily risk counters reset");
+            }
+        });
+    }
 
     // --- Wait for shutdown ---
     tokio::signal::ctrl_c()

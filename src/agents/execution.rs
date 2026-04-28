@@ -161,18 +161,25 @@ pub fn spawn(deps: ExecutionAgentDeps) -> JoinHandle<()> {
                     match exchange.place_order(&req).await {
                         Ok(ack) => {
                             risk.on_position_opened();
+                            let fill_price = if ack.avg_fill_price > 0.0 {
+                                ack.avg_fill_price
+                            } else {
+                                req.price.unwrap_or(0.0)
+                            };
                             let pos = Position {
                                 client_id: req.client_id.clone(),
                                 symbol: req.symbol.clone(),
                                 side: req.side,
                                 size: req.size,
-                                entry_price: ack.avg_fill_price.max(req.price.unwrap_or(0.0)),
+                                entry_price: fill_price,
                                 stop_loss: req.stop_loss,
                                 take_profit: req.take_profit,
                                 opened_at: Utc::now(),
                                 trailing_activated: false,
-                                peak_price: req.price.unwrap_or(ack.avg_fill_price),
-                                trough_price: req.price.unwrap_or(ack.avg_fill_price),
+                                // Use actual fill price so trailing stop activation
+                                // is anchored to real entry, not the requested price.
+                                peak_price: fill_price,
+                                trough_price: fill_price,
                             };
                             book.open(pos.clone());
 

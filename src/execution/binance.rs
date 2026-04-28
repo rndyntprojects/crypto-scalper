@@ -96,7 +96,11 @@ impl Exchange for BinanceFutures {
             if is_protective {
                 params.push(("closePosition".to_string(), "true".to_string()));
             } else {
-                params.push(("quantity".to_string(), format!("{:.6}", req.size)));
+                // Round quantity to the correct step size for the symbol.
+                // Binance Futures lot sizes (defaults if not fetched from exchange_info):
+                //   BTC=0.001, ETH=0.001, SOL=0.1, BNB=0.01, others=0.001
+                let qty_str = format_quantity(&req.symbol, req.size);
+                params.push(("quantity".to_string(), qty_str));
             }
             if req.reduce_only && !is_protective {
                 params.push(("reduceOnly".to_string(), "true".to_string()));
@@ -408,6 +412,32 @@ impl Exchange for BinanceFutures {
             Ok(out)
         })
     }
+}
+
+/// Round a quantity to the correct step size for the given futures symbol.
+///
+/// Binance rejects orders whose quantity doesn't match the symbol's LOT_SIZE
+/// filter. Fetching exchange_info on every order is too slow for scalping, so
+/// we use well-known defaults and let a startup reconciliation (future work)
+/// override them. Using too few decimal places is always safe; using too many
+/// causes a -1111 "Parameter 'quantity' has too much precision" error.
+fn format_quantity(symbol: &str, qty: f64) -> String {
+    // step_size decimals by symbol (Binance USDT-M Futures defaults, 2025)
+    let decimals: u32 = match symbol {
+        s if s.starts_with("BTC") => 3,   // step 0.001
+        s if s.starts_with("ETH") => 3,   // step 0.001
+        s if s.starts_with("BNB") => 2,   // step 0.01
+        s if s.starts_with("SOL") => 1,   // step 0.1
+        s if s.starts_with("DOGE") => 0,  // step 1
+        s if s.starts_with("XRP") => 1,   // step 0.1
+        s if s.starts_with("ADA") => 0,   // step 1
+        s if s.starts_with("AVAX") => 2,  // step 0.01
+        s if s.starts_with("MATIC") | s.starts_with("POL") => 0, // step 1
+        _ => 3, // conservative default — 0.001
+    };
+    let factor = 10_f64.powi(decimals as i32);
+    let rounded = (qty * factor).floor() / factor;
+    format!("{:.prec$}", rounded, prec = decimals as usize)
 }
 
 fn encode_query(params: &[(String, String)]) -> String {
