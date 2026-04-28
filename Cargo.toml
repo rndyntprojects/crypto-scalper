@@ -19,10 +19,14 @@ path = "src/lib.rs"
 [dependencies]
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
-tokio-tungstenite = { version = "0.21", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
+# Using native-tls (system OpenSSL) for both crates avoids the
+# `CaUsedAsEndEntity` / `UnknownIssuer` chain-validation issues that
+# rustls-webpki sometimes hits on Termux/Android and other embedded
+# targets where the certificate chain ordering isn't pristine.
+tokio-tungstenite = { version = "0.21", default-features = false, features = ["native-tls", "connect"] }
 
 # HTTP & networking
-reqwest = { version = "0.12.5", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+reqwest = { version = "0.12.5", default-features = false, features = ["json", "native-tls", "gzip"] }
 futures-util = "0.3"
 url = "2.5"
 
