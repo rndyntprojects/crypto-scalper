@@ -279,6 +279,25 @@ async fn run_agents(cfg: Config) -> Result<()> {
     }
     let states = Arc::new(Mutex::new(states_map));
 
+    // --- Bootstrap historical candles so indicators are warm on day-1 ---
+    // Without this, EMA200 needs 200 live candles (= 16h+ at 5m) before
+    // EmaRibbon can fire, and ADX needs ~28 candles before RegimeDetector
+    // can classify anything other than Unknown.
+    {
+        let bootstrap_tf = cfg
+            .pairs
+            .timeframes
+            .first()
+            .and_then(|s| Timeframe::parse(s).ok())
+            .unwrap_or(Timeframe { seconds: 300 });
+        crypto_scalper::data::bootstrap_states(
+            &states,
+            &cfg.exchange.rest_base_url,
+            &bootstrap_tf,
+        )
+        .await;
+    }
+
     let active: Vec<StrategyName> = cfg
         .strategy
         .active

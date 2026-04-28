@@ -62,6 +62,22 @@ pub fn spawn(
                         state.on_closed(candle);
                         let regime = RegimeDetector::detect(state);
                         let chosen = select_strategies(&active, regime);
+
+                        // Debug warm-up status so operator can see why no signals
+                        debug!(
+                            symbol = %symbol,
+                            regime = %regime.as_str(),
+                            candles = state.candles.len(),
+                            ema200_ready = state.ema_200.value().is_some(),
+                            ema50_ready  = state.ema_50.value().is_some(),
+                            adx_ready    = state.last_adx.is_some(),
+                            rsi_ready    = state.last_rsi.is_some(),
+                            bb_ready     = state.last_bb.is_some(),
+                            vwap_ready   = state.last_vwap.is_some(),
+                            strategies   = ?chosen,
+                            "candle closed — evaluating strategies"
+                        );
+
                         let mut best: Option<PreSignal> = None;
                         for name in chosen {
                             let sig = match name {
@@ -74,6 +90,14 @@ pub fn spawn(
                                 StrategyName::Squeeze => Squeeze.evaluate(state, &candle),
                             };
                             if let Some(s) = sig {
+                                debug!(
+                                    symbol = %symbol,
+                                    strategy = %s.strategy.as_str(),
+                                    side = %s.side.as_str(),
+                                    confidence = s.ta_confidence,
+                                    reason = %s.reason,
+                                    "strategy fired pre-signal"
+                                );
                                 if best
                                     .as_ref()
                                     .map(|b| s.ta_confidence > b.ta_confidence)

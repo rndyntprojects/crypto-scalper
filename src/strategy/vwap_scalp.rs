@@ -18,9 +18,13 @@ impl Strategy for VwapScalp {
 
         let dist_pct = (c.close - vwap) / vwap.max(1e-9) * 100.0;
 
-        let side = if slope > 0.0 && c.close <= vwap * 1.0005 && c.close >= vwap * 0.997 {
+        // Allow entry within 0.5% of VWAP on either side (previously too tight at 0.05%).
+        let long_zone  = c.close <= vwap * 1.005 && c.close >= vwap * 0.997;
+        let short_zone = c.close >= vwap * 0.995 && c.close <= vwap * 1.003;
+
+        let side = if slope > 0.0 && long_zone {
             Side::Long
-        } else if slope < 0.0 && c.close >= vwap * 0.9995 && c.close <= vwap * 1.003 {
+        } else if slope < 0.0 && short_zone {
             Side::Short
         } else {
             return None;
