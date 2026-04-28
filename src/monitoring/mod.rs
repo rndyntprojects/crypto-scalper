@@ -5,5 +5,7 @@ pub mod metrics;
 pub mod telegram;
 
 pub use logger::{TradeJournal, TradeRecord};
-pub use metrics::{spawn_metrics_server, MetricsSnapshot, MetricsState};
+pub use metrics::{
+    spawn_dashboard_server, spawn_metrics_server, DashboardState, MetricsSnapshot, MetricsState,
+};
 pub use telegram::TelegramNotifier;

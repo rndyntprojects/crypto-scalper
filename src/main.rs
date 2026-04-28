@@ -18,12 +18,17 @@ use crypto_scalper::{
         ExternalSnapshot, FearGreedClient, FundingClient, NewsClient, OnchainClient,
         SentimentClient,
     },
+    learning::{
+        lessons::{LessonConfig, LessonExtractor},
+        LearningPolicy, PerformanceMemory,
+    },
     llm::{
         engine::{LlmEngine, LlmEngineConfig, LlmProvider},
         ContextBuilder, Decision,
     },
     monitoring::{
-        logger::TradeJournal, spawn_metrics_server, MetricsState, TelegramNotifier, TradeRecord,
+        logger::TradeJournal, spawn_dashboard_server, DashboardState, MetricsState,
+        TelegramNotifier, TradeRecord,
     },
     strategy::{
         ema_ribbon::EmaRibbon,
@@ -134,6 +139,7 @@ struct Runtime {
     sentiment: SentimentClient,
     onchain: OnchainClient,
     active_strategies: Vec<StrategyName>,
+    policy: LearningPolicy,
 }
 
 async fn run_live(cfg: Config) -> Result<()> {
@@ -174,14 +180,13 @@ async fn run_live(cfg: Config) -> Result<()> {
             .unwrap_or_else(|_| cfg.monitoring.telegram_chat_id.clone()),
     ));
 
-    // --- Metrics server ---
+    // --- Metrics state (server spawned later with the learning policy) ---
     let metrics = MetricsState::new(&cfg.mode.run_mode);
     let bind = cfg
         .monitoring
         .metrics_bind
         .parse::<std::net::SocketAddr>()
         .context("invalid metrics bind")?;
-    let _metrics_handle = spawn_metrics_server(Arc::clone(&metrics), bind);
 
     // --- LLM engine ---
     let provider = LlmProvider::parse(&cfg.llm.provider);
@@ -240,6 +245,17 @@ async fn run_live(cfg: Config) -> Result<()> {
         .filter_map(|s| StrategyName::parse(s))
         .collect();
 
+    let policy = LearningPolicy::default();
+
+    // --- Dashboard server (now wired with the policy) ---
+    let _metrics_handle = spawn_dashboard_server(
+        DashboardState {
+            metrics: Arc::clone(&metrics),
+            policy: Some(policy.clone()),
+        },
+        bind,
+    );
+
     let rt = Arc::new(Runtime {
         cfg: cfg.clone(),
         exchange,
@@ -257,7 +273,42 @@ async fn run_live(cfg: Config) -> Result<()> {
         sentiment,
         onchain,
         active_strategies: active,
+        policy,
     });
+
+    // --- Learning loop: refresh memory + lessons every 5 minutes ---
+    {
+        let rt_learn = Arc::clone(&rt);
+        let lesson_cfg = LessonConfig {
+            equity_for_drawdown: rt.cfg.risk.equity_usd,
+            ..LessonConfig::default()
+        };
+        let extractor = LessonExtractor::new(lesson_cfg);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(300));
+            // Run once immediately so a populated DB primes the policy.
+            tick.tick().await;
+            loop {
+                match rt_learn.journal.closed_trades(500) {
+                    Ok(trades) => {
+                        let mem = PerformanceMemory::build(&trades);
+                        let lessons = extractor.extract(&mem);
+                        info!(
+                            trades = trades.len(),
+                            lessons = lessons.len(),
+                            "learning policy refreshed"
+                        );
+                        rt_learn
+                            .metrics
+                            .update(|m| m.active_lessons = lessons.len() as u64);
+                        rt_learn.policy.update(mem, lessons);
+                    }
+                    Err(e) => warn!(error = %e, "learning refresh failed"),
+                }
+                tick.tick().await;
+            }
+        });
+    }
     let _ = interval_secs; // silence unused in some branches
 
     // --- WS stream ---
@@ -288,12 +339,30 @@ async fn run_live(cfg: Config) -> Result<()> {
                 }
 
                 if let Some(c) = finalized_candle {
-                    let (signal, regime, ta_cfg) = {
+                    let (signal, regime, ta_cfg, verdict) = {
                         let mut states = rt.states.lock().await;
                         let state = states.get_mut(&symbol).unwrap();
                         state.on_closed(c);
                         let regime = RegimeDetector::detect(state);
                         let chosen = select_strategies(&rt.active_strategies, regime);
+                        // Layer-2 wiring: ask the learning policy whether each
+                        // strategy is currently allowed for this symbol+regime.
+                        let chosen: Vec<_> = chosen
+                            .into_iter()
+                            .filter(|name| {
+                                let v = rt.policy.evaluate(name.as_str(), regime.as_str(), &symbol);
+                                if !v.allowed {
+                                    info!(
+                                        symbol = %symbol,
+                                        strategy = %name.as_str(),
+                                        regime = %regime.as_str(),
+                                        reasons = ?v.matched_lessons,
+                                        "learning policy blocked strategy"
+                                    );
+                                }
+                                v.allowed
+                            })
+                            .collect();
                         let mut best: Option<PreSignal> = None;
                         for name in chosen {
                             let sig = match name {
@@ -313,11 +382,22 @@ async fn run_live(cfg: Config) -> Result<()> {
                                 }
                             }
                         }
-                        (best, regime, rt.cfg.strategy.min_ta_confidence)
+                        let verdict = best.as_ref().map(|s| {
+                            rt.policy
+                                .evaluate(s.strategy.as_str(), regime.as_str(), &symbol)
+                        });
+                        (best, regime, rt.cfg.strategy.min_ta_confidence, verdict)
                     };
 
                     if let Some(signal) = signal {
-                        if signal.ta_confidence < ta_cfg {
+                        // Apply per-strategy TA threshold delta from lessons.
+                        let effective_ta_threshold = verdict
+                            .as_ref()
+                            .map(|v| {
+                                (ta_cfg as i32 + v.ta_threshold_delta as i32).clamp(0, 100) as u8
+                            })
+                            .unwrap_or(ta_cfg);
+                        if signal.ta_confidence < effective_ta_threshold {
                             continue;
                         }
                         if let Err(e) = rt.risk.can_open_position() {
@@ -380,12 +460,16 @@ async fn handle_signal(
         funding: fund.ok(),
     };
 
-    // 2. Build context and call LLM
-    let ctx = {
+    // 2. Build context and call LLM. Layer-3 wiring: inject historical
+    //    performance summary so the LLM sees what worked/failed recently.
+    let mut ctx = {
         let states = rt.states.lock().await;
         let state = states.get(&symbol).unwrap();
         ContextBuilder::build(state, regime, &signal, external.clone())
     };
+    ctx.historical_summary =
+        rt.policy
+            .historical_summary(signal.strategy.as_str(), regime.as_str(), &symbol);
     let llm_out = rt.llm.analyze(&ctx).await?;
 
     rt.metrics.update(|m| {
@@ -430,22 +514,45 @@ async fn handle_signal(
         );
         return Ok(());
     }
-    if llm_out.decision.confidence < rt.cfg.llm.min_confidence {
+    // Layer-3 LLM gate, possibly raised by an LlmCalibration lesson.
+    let verdict = rt
+        .policy
+        .evaluate(signal.strategy.as_str(), regime.as_str(), &symbol);
+    let llm_floor = verdict
+        .llm_min_confidence_floor
+        .unwrap_or(rt.cfg.llm.min_confidence)
+        .max(rt.cfg.llm.min_confidence);
+    if llm_out.decision.confidence < llm_floor {
         info!(
             symbol = %symbol,
             conf = llm_out.decision.confidence,
-            threshold = rt.cfg.llm.min_confidence,
+            threshold = llm_floor,
             "LLM confidence below threshold"
         );
         return Ok(());
     }
 
-    // 4. Size and dispatch order
+    // 4. Size and dispatch order. Layer-4 wiring: scale by learning verdict.
     let entry = llm_out.decision.entry_price.unwrap_or(signal.entry);
-    let size = rt.risk.calculate_size(entry, signal.stop_loss);
+    let base_size = rt.risk.calculate_size(entry, signal.stop_loss);
+    let size = base_size * verdict.size_multiplier;
     if size <= 0.0 {
-        warn!(symbol = %symbol, "risk size == 0 — skipping");
+        warn!(
+            symbol = %symbol,
+            base_size,
+            multiplier = verdict.size_multiplier,
+            "size == 0 — skipping (likely blocked by lesson)"
+        );
         return Ok(());
+    }
+    if !verdict.matched_lessons.is_empty() {
+        info!(
+            symbol = %symbol,
+            base_size,
+            scaled_size = size,
+            lessons = ?verdict.matched_lessons,
+            "learning policy adjusted trade"
+        );
     }
 
     let client_id = format!("aria-{}-{}", symbol, Utc::now().timestamp_millis());

@@ -10,6 +10,7 @@ pub mod errors;
 pub mod execution;
 pub mod feeds;
 pub mod indicators;
+pub mod learning;
 pub mod llm;
 pub mod monitoring;
 pub mod strategy;

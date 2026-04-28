@@ -12,7 +12,49 @@ every trade.
 │ Layer 3 — Brain       │ Context packet → Claude → GO/NO_GO/WAIT            │
 │ Layer 4 — Execution   │ Risk gates · position sizer · Binance OCO          │
 │ Layer 5 — Monitoring  │ SQLite journal · Telegram · /metrics HTTP          │
+│ Layer 6 — Learning    │ Trade history → lessons → adaptive policy          │
 └────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Layer 6 — Learning system
+
+Every closed trade lands in the SQLite journal with all of its TA + LLM
+context. A background task refreshes a `LearningPolicy` from the journal
+every 5 minutes, deriving stats and turning them into actionable rules:
+
+| Lesson | Trigger | Action |
+|---|---|---|
+| `LoseStreak` | ≥3 losses in a row on `(strategy, symbol)` | Skip 30 min |
+| `StrategyDerate` | Strategy WR < 35% over ≥8 trades | +10 TA threshold, ½ size, LLM floor 80 |
+| `StrategyBoost` | Strategy WR ≥ 65% & PF ≥ 1.5 | −5 TA threshold, 1.2× size |
+| `RegimeBlacklist` | `(strategy, regime)` WR < 30% over ≥12 trades | Drop from regime selector for 12h |
+| `LlmCalibration` | LLM 80–100 confidence picks land < 40% WR | Raise `min_confidence` to 90 |
+| `SymbolDerate` | Symbol net negative over ≥8 trades, WR < 35% | Pause symbol 24h |
+| `DrawdownCooldown` | ≤−5% equity in last 60 min over ≥2 trades | Pause everything 60 min |
+
+The policy is consulted at every layer:
+
+- **Layer 2** (`select_strategies`): blacklisted `(strategy, symbol)` combos are
+  filtered out before evaluation.
+- **Layer 3** (LLM context): `[HISTORICAL PERFORMANCE]` block is injected
+  into the prompt so the LLM can reason about what worked/failed recently.
+- **Layer 3 LLM gate**: confidence floor is raised when the calibration
+  lesson is active.
+- **Layer 4** (Risk): position size is multiplied by the verdict's size
+  multiplier (zero on blocks, 0.5× on derate, 1.2× on boost).
+- **Layer 5** (Monitoring): `/lessons` and `/dashboard` HTTP endpoints
+  expose the currently active lessons.
+
+```bash
+curl http://localhost:9184/dashboard | jq .
+# {
+#   "metrics": { ..., "active_lessons": 3 },
+#   "lessons": [
+#     {"kind":"LoseStreak","strategy":"vwap_scalp","symbol":"BTCUSDT", ...},
+#     {"kind":"StrategyBoost","strategy":"ema_ribbon", ...},
+#     ...
+#   ]
+# }
 ```
 
 ## Features
@@ -133,6 +175,7 @@ src/
 ├── llm/                # Layer 3 — context builder, prompts, engine
 ├── execution/          # Layer 4 — risk, orders, exchange abstraction
 ├── monitoring/         # Layer 5 — SQLite, Telegram, HTTP metrics
+├── learning/           # Layer 6 — performance memory, lessons, policy
 ├── backtest/           # replay engine + performance metrics
 ├── lib.rs              # module re-exports
 └── main.rs             # orchestrator binary `aria`

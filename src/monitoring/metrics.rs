@@ -1,5 +1,6 @@
 //! HTTP metrics/dashboard endpoint (JSON).
 
+use crate::learning::{LearningPolicy, Lesson};
 use axum::{extract::State, routing::get, Json, Router};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ pub struct MetricsSnapshot {
     pub llm_avg_confidence: f64,
     pub llm_avg_latency_ms: u64,
     pub llm_offline_fallbacks: u64,
+    pub active_lessons: u64,
     pub last_update_ts: i64,
 }
 
@@ -51,11 +53,35 @@ impl MetricsState {
     }
 }
 
+#[derive(Clone)]
+pub struct DashboardState {
+    pub metrics: Arc<MetricsState>,
+    pub policy: Option<LearningPolicy>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DashboardResponse {
+    metrics: MetricsSnapshot,
+    lessons: Vec<Lesson>,
+}
+
 pub fn spawn_metrics_server(state: Arc<MetricsState>, bind: SocketAddr) -> JoinHandle<()> {
+    spawn_dashboard_server(
+        DashboardState {
+            metrics: state,
+            policy: None,
+        },
+        bind,
+    )
+}
+
+pub fn spawn_dashboard_server(state: DashboardState, bind: SocketAddr) -> JoinHandle<()> {
     let app = Router::new()
         .route("/", get(root_handler))
         .route("/healthz", get(|| async { "ok" }))
         .route("/metrics", get(metrics_handler))
+        .route("/lessons", get(lessons_handler))
+        .route("/dashboard", get(dashboard_handler))
         .with_state(state);
     tokio::spawn(async move {
         match tokio::net::TcpListener::bind(bind).await {
@@ -73,9 +99,30 @@ pub fn spawn_metrics_server(state: Arc<MetricsState>, bind: SocketAddr) -> JoinH
 }
 
 async fn root_handler() -> &'static str {
-    "ARIA metrics — see /metrics and /healthz"
+    "ARIA metrics — see /metrics, /lessons, /dashboard, /healthz"
 }
 
-async fn metrics_handler(State(state): State<Arc<MetricsState>>) -> Json<MetricsSnapshot> {
-    Json(state.snapshot())
+async fn metrics_handler(State(state): State<DashboardState>) -> Json<MetricsSnapshot> {
+    Json(state.metrics.snapshot())
+}
+
+async fn lessons_handler(State(state): State<DashboardState>) -> Json<Vec<Lesson>> {
+    Json(
+        state
+            .policy
+            .as_ref()
+            .map(|p| p.active_lessons())
+            .unwrap_or_default(),
+    )
+}
+
+async fn dashboard_handler(State(state): State<DashboardState>) -> Json<DashboardResponse> {
+    Json(DashboardResponse {
+        metrics: state.metrics.snapshot(),
+        lessons: state
+            .policy
+            .as_ref()
+            .map(|p| p.active_lessons())
+            .unwrap_or_default(),
+    })
 }

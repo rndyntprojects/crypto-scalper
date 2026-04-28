@@ -37,6 +37,10 @@ pub struct MarketContext {
     pub best_bid: Option<f64>,
     pub best_ask: Option<f64>,
     pub external: ExternalSnapshot,
+    /// Optional historical-performance summary fed by the learning system.
+    /// Empty string when the journal is cold.
+    #[serde(default)]
+    pub historical_summary: String,
 }
 
 pub struct ContextBuilder;
@@ -78,6 +82,7 @@ impl ContextBuilder {
             best_bid: state.order_book.best_bid(),
             best_ask: state.order_book.best_ask(),
             external,
+            historical_summary: String::new(),
         }
     }
 }
@@ -178,6 +183,13 @@ impl MarketContext {
             let _ = writeln!(s, "  Sentiment     : {:.2}", snt.sentiment);
             if let Some(g) = snt.galaxy_score {
                 let _ = writeln!(s, "  Galaxy score  : {g:.2}");
+            }
+        }
+
+        if !self.historical_summary.is_empty() {
+            let _ = writeln!(s, "\n[HISTORICAL PERFORMANCE]");
+            for line in self.historical_summary.lines() {
+                let _ = writeln!(s, "  {line}");
             }
         }
 

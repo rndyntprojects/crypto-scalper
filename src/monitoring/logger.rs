@@ -296,6 +296,58 @@ impl TradeJournal {
         let v: i64 = conn.query_row("SELECT COUNT(*) FROM trades", [], |r| r.get(0))?;
         Ok(v)
     }
+
+    /// Compact view of a closed trade — just enough for the learning system.
+    pub fn closed_trades(&self, limit: i64) -> Result<Vec<ClosedTrade>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT symbol, direction, strategy, market_regime, entry_time, exit_time,
+                    pnl_usd, pnl_pct, ta_confidence, llm_confidence
+             FROM trades
+             WHERE exit_time IS NOT NULL AND pnl_usd IS NOT NULL
+             ORDER BY exit_time DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| {
+            Ok(ClosedTrade {
+                symbol: r.get(0)?,
+                direction: r.get(1)?,
+                strategy: r.get(2)?,
+                regime: r.get(3)?,
+                entry_time: r.get(4)?,
+                exit_time: r.get(5)?,
+                pnl_usd: r.get(6)?,
+                pnl_pct: r.get(7).unwrap_or(0.0),
+                ta_confidence: r.get::<_, Option<i64>>(8)?.map(|v| v as u8),
+                llm_confidence: r.get::<_, Option<i64>>(9)?.map(|v| v as u8),
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClosedTrade {
+    pub symbol: String,
+    pub direction: String,
+    pub strategy: String,
+    pub regime: String,
+    pub entry_time: DateTime<Utc>,
+    pub exit_time: DateTime<Utc>,
+    pub pnl_usd: f64,
+    pub pnl_pct: f64,
+    pub ta_confidence: Option<u8>,
+    pub llm_confidence: Option<u8>,
+}
+
+impl ClosedTrade {
+    pub fn is_win(&self) -> bool {
+        self.pnl_usd > 0.0
+    }
 }
 
 #[cfg(test)]
