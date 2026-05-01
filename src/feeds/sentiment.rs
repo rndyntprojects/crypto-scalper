@@ -68,9 +68,10 @@ impl SentimentClient {
 
 fn lunarcrush_asset(symbol_upper: &str) -> &str {
     symbol_upper
-        .trim_end_matches("BUSD")
-        .trim_end_matches("USDT")
-        .trim_end_matches("USD")
+        .strip_suffix("BUSD")
+        .or_else(|| symbol_upper.strip_suffix("USDT"))
+        .or_else(|| symbol_upper.strip_suffix("USD"))
+        .unwrap_or(symbol_upper)
 }
 
 fn parse_lunarcrush_snapshot(symbol_upper: &str, resp: &Value) -> SentimentSnapshot {
@@ -172,6 +173,8 @@ mod tests {
         assert_eq!(lunarcrush_asset("BTCUSDT"), "BTC");
         assert_eq!(lunarcrush_asset("ETHUSD"), "ETH");
         assert_eq!(lunarcrush_asset("SOLBUSD"), "SOL");
+        assert_eq!(lunarcrush_asset("TUSDUSDT"), "TUSD");
+        assert_eq!(lunarcrush_asset("BUSDUSDT"), "BUSD");
     }
 
     #[test]

@@ -201,11 +201,11 @@ fn parse_cryptopanic_item(post: &Value) -> Option<NewsItem> {
 }
 
 fn cryptopanic_vote_score(votes: &Value) -> f64 {
-    let positive = ["positive", "important", "liked", "bullish"]
+    let positive = ["positive", "bullish"]
         .iter()
         .filter_map(|k| votes.get(k).and_then(|v| v.as_f64()))
         .sum::<f64>();
-    let negative = ["negative", "toxic", "disliked", "bearish"]
+    let negative = ["negative", "bearish"]
         .iter()
         .filter_map(|k| votes.get(k).and_then(|v| v.as_f64()))
         .sum::<f64>();
@@ -295,12 +295,23 @@ mod tests {
                 "title": "BTC ETF rally",
                 "url": "https://example.com/post",
                 "published_at": "2026-01-01T00:00:00Z",
-                "votes": {"positive": 9, "negative": 1, "important": 2}
+                "votes": {"positive": 9, "negative": 1, "important": 20}
             }]
         });
         let items = parse_cryptopanic_items(&payload, 10);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].source, "cryptopanic");
         assert!(items[0].score > 0.5);
+    }
+
+    #[test]
+    fn cryptopanic_vote_score_ignores_non_directional_votes() {
+        let votes = serde_json::json!({
+            "negative": 10,
+            "important": 50,
+            "liked": 50,
+            "toxic": 50
+        });
+        assert_eq!(cryptopanic_vote_score(&votes), -0.5);
     }
 }
