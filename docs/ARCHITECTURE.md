@@ -351,7 +351,13 @@ from `prompt-1777632664168.md`:
 - `src/strategy/pairs.rs` and `src/feeds/funding_arb.rs` — pairs-trading
   spread helpers and funding-edge classification.
 - `src/feeds/alt_data.rs` and `src/feeds/options.rs` — normalized
-  alternative-data and options-skew sentiment scores.
+  alternative-data scoring and public Deribit BTC/ETH options-skew
+  snapshots.
+- `[advanced_alpha]` can wire external-data/funding/Kalman context into
+  `SignalAgent` as a pre-risk confirmation gate. It is disabled by
+  default and never directly sizes orders.
+- Backtest mode emits a compact research report table by default; set
+  `ARIA_RESEARCH_REPORT_FORMAT=json` for JSON output.
 
 These modules are intentionally independent and test-covered so they can
 be wired deeper into live sizing/strategy selection in small, auditable PRs.

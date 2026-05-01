@@ -25,6 +25,15 @@ mode   = "adaptive"
 active = ["mean_reversion", "ema_ribbon", "momentum", "vwap_scalp", "squeeze"]
 min_ta_confidence = 65
 
+[advanced_alpha]
+# Disabled by default. When enabled, external data + Kalman trend context can
+# veto or modestly reduce pre-signal confidence before the risk/LLM pipeline.
+enabled = false
+min_abs_score = 0.20
+reduce_confidence_delta = 5
+kalman_process_noise = 0.01
+kalman_measurement_noise = 1.0
+
 [llm]
 # Default: OpenRouter (1 key, banyak model — Claude/GPT/Gemini/DeepSeek/Qwen).
 # Ganti ke "anthropic" kalau mau pakai Anthropic native.
@@ -77,6 +86,7 @@ cryptopanic_api_key = ""   # env CRYPTOPANIC_API_KEY
 lunarcrush_api_key  = ""   # env LUNARCRUSH_API_KEY
 glassnode_api_key   = ""   # env GLASSNODE_API_KEY
 whalealert_api_key  = ""   # env WHALE_ALERT_API_KEY
+deribit_base_url = "https://www.deribit.com"
 rss_feeds = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://decrypt.co/feed",

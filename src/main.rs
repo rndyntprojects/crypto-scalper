@@ -23,8 +23,8 @@ use crypto_scalper::{
     },
     execution::{risk::RiskLimits, tcm::TransactionCostModel},
     feeds::{
-        ExternalSnapshot, FearGreedClient, FundingClient, NewsClient, OnchainClient,
-        SentimentClient,
+        DeribitOptionsClient, ExternalSnapshot, FearGreedClient, FundingClient, NewsClient,
+        OnchainClient, SentimentClient,
     },
     learning::{lessons::LessonConfig, LearningPolicy},
     llm::engine::{LlmEngine, LlmEngineConfig, LlmProvider},
@@ -32,6 +32,7 @@ use crypto_scalper::{
         logger::TradeJournal, spawn_dashboard_server, DashboardState, MetricsState,
         TelegramNotifier,
     },
+    research::{reports_to_json, reports_to_markdown, ResearchReport},
     strategy::state::{StrategyName, SymbolState},
 };
 use parking_lot::RwLock as PlRwLock;
@@ -156,6 +157,7 @@ async fn run_backtest(cfg: &Config) -> Result<()> {
         .map(|t| t.seconds)
         .unwrap_or(300);
 
+    let mut reports = Vec::new();
     for symbol in &cfg.pairs.symbols {
         let file = data_dir.join(format!("{symbol}.csv"));
         if !file.exists() {
@@ -180,6 +182,7 @@ async fn run_backtest(cfg: &Config) -> Result<()> {
             trades_per_day: cfg.backtest.trades_per_day,
         };
         let result = engine.run(&candles)?;
+        reports.push(ResearchReport::from_backtest(&result));
         info!(
             symbol = %symbol,
             trades = result.trades.len(),
@@ -188,6 +191,14 @@ async fn run_backtest(cfg: &Config) -> Result<()> {
             net = %format!("{:.2}", result.metrics.net_pnl),
             "backtest symbol done"
         );
+    }
+    if !reports.is_empty() {
+        let format =
+            std::env::var("ARIA_RESEARCH_REPORT_FORMAT").unwrap_or_else(|_| "markdown".into());
+        match format.as_str() {
+            "json" => println!("{}", reports_to_json(&reports)),
+            _ => println!("{}", reports_to_markdown(&reports)),
+        }
     }
     Ok(())
 }
@@ -278,6 +289,9 @@ async fn run_agents(cfg: Config) -> Result<()> {
     let onchain = Arc::new(OnchainClient::new(
         Some(cfg.feeds.glassnode_api_key.clone()).filter(|s| !s.is_empty()),
         Some(cfg.feeds.whalealert_api_key.clone()).filter(|s| !s.is_empty()),
+    ));
+    let options = Arc::new(DeribitOptionsClient::new(
+        cfg.feeds.deribit_base_url.clone(),
     ));
 
     // --- Per-symbol state (owned by SignalAgent, read by BrainAgent) ---
@@ -404,6 +418,7 @@ async fn run_agents(cfg: Config) -> Result<()> {
             news,
             sentiment,
             onchain,
+            options,
         },
         cfg.pairs.symbols.clone(),
         60,
@@ -413,6 +428,7 @@ async fn run_agents(cfg: Config) -> Result<()> {
         Arc::clone(&states),
         active.clone(),
         cfg.schedule.clone(),
+        cfg.advanced_alpha.clone(),
     );
     let _risk = crypto_scalper::agents::risk::spawn(
         bus.clone(),

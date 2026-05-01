@@ -139,6 +139,7 @@ sensible default — you can run with no overlay at all in paper mode.
 | `[exchange]` | Binance URLs, `api_key`, `api_secret`, `recv_window_ms` | [docs/CONFIG.md](docs/CONFIG.md#exchange) |
 | `[pairs]` | `symbols`, `timeframes` | [docs/CONFIG.md](docs/CONFIG.md#pairs) |
 | `[strategy]` | active strategies, TA confidence floor | [docs/CONFIG.md](docs/CONFIG.md#strategy) |
+| `[advanced_alpha]` | disabled-by-default alpha gate for external-data/trend confirmation | [docs/CONFIG.md](docs/CONFIG.md#advanced_alpha) |
 | `[llm]` | brain LLM provider, model, key, fallback | [docs/CONFIG.md](docs/CONFIG.md#llm) |
 | `[manager]` | manager LLM (final verdict layer) | [docs/CONFIG.md](docs/CONFIG.md#manager) |
 | `[risk]` | per-trade %, max positions, daily-loss / drawdown / leverage / spread / edge / notional caps, equity | [docs/CONFIG.md](docs/CONFIG.md#risk) |
@@ -293,6 +294,8 @@ open_time_ms,open,high,low,close,volume
 Run with `[mode] run_mode = "backtest"`; you'll get a per-symbol report
 with WR, profit factor, annualized Sharpe/Sortino, and max drawdown. The
 simulator subtracts entry/exit fees, adverse slippage, and market-impact cost.
+Backtest also prints a research report table with Monte Carlo drawdown and
+health classification; set `ARIA_RESEARCH_REPORT_FORMAT=json` for JSON output.
 
 ## Project Layout
 

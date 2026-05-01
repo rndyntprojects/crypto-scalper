@@ -151,6 +151,22 @@ To **disable** the dead zone, set `start == end` (e.g. both 0).
 
 ---
 
+## `[advanced_alpha]`
+
+| Key | Default | Meaning |
+|---|---:|---|
+| `enabled` | `false` | master switch; default is a no-op so paper/live behavior stays unchanged |
+| `min_abs_score` | `0.20` | alpha gate threshold for allow/block; values inside the band reduce confidence |
+| `reduce_confidence_delta` | `5` | TA-confidence reduction when context is inconclusive |
+| `kalman_process_noise` | `0.01` | Kalman trend process noise |
+| `kalman_measurement_noise` | `1.0` | Kalman trend measurement noise |
+
+When enabled, `SignalAgent` uses latest `FeedsSnapshot` plus Kalman trend
+context to block adverse candidates or reduce their TA confidence before
+the risk/LLM pipeline. It does not directly size orders.
+
+---
+
 ## `[feeds]`
 
 | Key | Default | Meaning |
@@ -159,10 +175,12 @@ To **disable** the dead zone, set `start == end` (e.g. both 0).
 | `lunarcrush_api_key` | `""` | env `LUNARCRUSH_API_KEY` |
 | `glassnode_api_key` | `""` | env `GLASSNODE_API_KEY` |
 | `whalealert_api_key` | `""` | env `WHALE_ALERT_API_KEY` |
+| `deribit_base_url` | `"https://www.deribit.com"` | public Deribit endpoint for BTC/ETH options IV skew |
 | `rss_feeds` | CoinDesk, Decrypt, CoinTelegraph | RSS news sources (no key needed) |
 
 Missing keys → that sub-feed silently emits an empty snapshot. Nothing
-crashes.
+crashes. Deribit options data uses public endpoints; unsupported symbols
+emit no options snapshot.
 
 ---
 
