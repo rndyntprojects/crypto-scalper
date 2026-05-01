@@ -11,8 +11,8 @@ use chrono::{TimeZone, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
-use tokio::sync::Mutex;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 /// How many candles to fetch. 220 covers EMA200 seed (200) + a few extra
@@ -104,7 +104,11 @@ pub async fn fetch_klines(
     }
 
     // Drop the last (currently-forming) candle — it isn't closed yet
-    if candles.last().map(|c| c.close_time > Utc::now()).unwrap_or(false) {
+    if candles
+        .last()
+        .map(|c| c.close_time > Utc::now())
+        .unwrap_or(false)
+    {
         candles.pop();
     }
 

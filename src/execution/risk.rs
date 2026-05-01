@@ -1,5 +1,6 @@
 //! Risk manager — position sizing, circuit breakers, daily loss / drawdown limits.
 
+use crate::execution::tcm::TransactionCostModel;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -30,6 +31,10 @@ pub struct RiskLimits {
     pub max_drawdown_pct: f64,
     pub max_leverage: u32,
     pub max_spread_pct: f64,
+    pub min_reward_risk: f64,
+    pub max_position_notional_pct: f64,
+    pub min_net_edge_bps: f64,
+    pub assumed_daily_volume_usd: f64,
 }
 
 #[derive(Debug)]
@@ -205,6 +210,52 @@ impl RiskManager {
         Ok(())
     }
 
+    pub fn validate_signal(
+        &self,
+        entry: f64,
+        stop_loss: f64,
+        take_profit: f64,
+        spread_pct: Option<f64>,
+        tcm: &TransactionCostModel,
+    ) -> std::result::Result<(), String> {
+        let i = self.inner.lock();
+        let risk_per_unit = (entry - stop_loss).abs();
+        if entry <= 0.0 || risk_per_unit <= 0.0 {
+            return Err("invalid entry/stop distance".into());
+        }
+        let reward_per_unit = (take_profit - entry).abs();
+        let rr = reward_per_unit / risk_per_unit;
+        if rr < i.limits.min_reward_risk {
+            return Err(format!(
+                "reward/risk {rr:.2} < {:.2}",
+                i.limits.min_reward_risk
+            ));
+        }
+        if let Some(spread) = spread_pct {
+            if spread > i.limits.max_spread_pct {
+                return Err(format!(
+                    "spread {spread:.4}% > {:.4}%",
+                    i.limits.max_spread_pct
+                ));
+            }
+        }
+        let risk_amount = i.equity * i.limits.risk_per_trade_pct / 100.0 * i.size_multiplier;
+        let risk_size = risk_amount / risk_per_unit;
+        let leverage_cap = i.equity * i.limits.max_leverage as f64 / entry.max(1e-9);
+        let notional_cap = i.equity * i.limits.max_position_notional_pct / 100.0 / entry.max(1e-9);
+        let size = risk_size.min(leverage_cap).min(notional_cap).max(0.0);
+        let gross_edge_bps = reward_per_unit / entry * 10_000.0;
+        let net_edge_bps = gross_edge_bps
+            - tcm.round_trip_cost_bps(size * entry, i.limits.assumed_daily_volume_usd);
+        if net_edge_bps < i.limits.min_net_edge_bps {
+            return Err(format!(
+                "net edge {net_edge_bps:.2} bps < {:.2} bps after costs",
+                i.limits.min_net_edge_bps
+            ));
+        }
+        Ok(())
+    }
+
     /// Calculate qty so that (entry - sl).abs() * qty == equity * risk%.
     /// The result is multiplied by the SurvivalAgent-controlled
     /// `size_multiplier`, so when the bot is in a low-survive-score
@@ -218,7 +269,8 @@ impl RiskManager {
         }
         let raw = risk_amount / risk_per_unit;
         let leverage_cap = i.equity * i.limits.max_leverage as f64 / entry.max(1e-9);
-        raw.min(leverage_cap).max(0.0)
+        let notional_cap = i.equity * i.limits.max_position_notional_pct / 100.0 / entry.max(1e-9);
+        raw.min(leverage_cap).min(notional_cap).max(0.0)
     }
 
     pub fn on_position_opened(&self) {
@@ -275,6 +327,10 @@ mod tests {
             max_drawdown_pct: 10.0,
             max_leverage: 5,
             max_spread_pct: 0.03,
+            min_reward_risk: 1.2,
+            max_position_notional_pct: 100.0,
+            min_net_edge_bps: 1.0,
+            assumed_daily_volume_usd: 1_000_000_000.0,
         }
     }
 
@@ -302,5 +358,51 @@ mod tests {
         r.on_position_closed(-120.0); // dd ~ 11%
         let s = r.snapshot();
         assert!(s.tripped);
+    }
+
+    #[test]
+    fn rejects_bad_reward_risk_and_wide_spread() {
+        let r = RiskManager::new(default_limits(), 1000.0);
+        let tcm = TransactionCostModel {
+            taker_fee_bps: 4.0,
+            maker_fee_bps: -1.0,
+            avg_slippage_bps: 2.0,
+            market_impact_bps: 1.0,
+        };
+        assert!(r
+            .validate_signal(100.0, 99.0, 100.5, Some(0.01), &tcm)
+            .is_err());
+        assert!(r
+            .validate_signal(100.0, 99.0, 101.5, Some(0.04), &tcm)
+            .is_err());
+        assert!(r
+            .validate_signal(100.0, 99.0, 101.5, Some(0.01), &tcm)
+            .is_ok());
+    }
+
+    #[test]
+    fn size_respects_notional_cap() {
+        let mut limits = default_limits();
+        limits.max_position_notional_pct = 10.0;
+        let r = RiskManager::new(limits, 1000.0);
+        let size = r.calculate_size(100.0, 99.0);
+        approx::assert_abs_diff_eq!(size, 1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn rejects_signal_without_net_edge_after_costs() {
+        let mut limits = default_limits();
+        limits.min_reward_risk = 1.0;
+        limits.min_net_edge_bps = 20.0;
+        let r = RiskManager::new(limits, 1000.0);
+        let tcm = TransactionCostModel {
+            taker_fee_bps: 4.0,
+            maker_fee_bps: -1.0,
+            avg_slippage_bps: 2.0,
+            market_impact_bps: 1.0,
+        };
+        assert!(r
+            .validate_signal(100.0, 99.9, 100.1, Some(0.01), &tcm)
+            .is_err());
     }
 }

@@ -23,6 +23,10 @@ pub struct PerformanceMetrics {
 impl PerformanceMetrics {
     /// Compute from a series of realized PnL per trade (in account currency).
     pub fn from_trades(pnls: &[f64]) -> Self {
+        Self::from_trades_annualized(pnls, pnls.len() as f64)
+    }
+
+    pub fn from_trades_annualized(pnls: &[f64], periods_per_year: f64) -> Self {
         if pnls.is_empty() {
             return Self::default();
         }
@@ -75,7 +79,7 @@ impl PerformanceMetrics {
         let var = returns.iter().map(|x| (x - mean_r).powi(2)).sum::<f64>() / returns.len() as f64;
         let sd = var.sqrt();
         let sharpe = if sd > 0.0 {
-            mean_r / sd * (returns.len() as f64).sqrt()
+            mean_r / sd * periods_per_year.sqrt()
         } else {
             0.0
         };
@@ -83,7 +87,7 @@ impl PerformanceMetrics {
         let downside_var = losses.iter().map(|x| x * x).sum::<f64>() / returns.len().max(1) as f64;
         let downside_sd = downside_var.sqrt();
         let sortino = if downside_sd > 0.0 {
-            mean_r / downside_sd * (returns.len() as f64).sqrt()
+            mean_r / downside_sd * periods_per_year.sqrt()
         } else {
             0.0
         };
@@ -119,5 +123,12 @@ mod tests {
         assert_eq!(m.wins, 3);
         approx::assert_abs_diff_eq!(m.win_rate, 0.6, epsilon = 1e-9);
         approx::assert_abs_diff_eq!(m.net_pnl, 32.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn sharpe_uses_external_annualization_factor() {
+        let pnls = [10.0, -5.0, 20.0, -8.0, 15.0];
+        let m = PerformanceMetrics::from_trades_annualized(&pnls, 365.0 * 12.0);
+        assert!(m.sharpe > PerformanceMetrics::from_trades(&pnls).sharpe);
     }
 }

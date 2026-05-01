@@ -64,7 +64,7 @@ backoff). Drives the `OhlcvBuilder` and maintains a fresh `OrderBook`
 snapshot. Emits:
 
 - `Tick { symbol, trade }` — every aggTrade
-- `BookTicker { symbol, bid_px, bid_qty, ask_px, ask_qty, ts }`
+- `BookTicker { symbol, best_bid, bid_qty, best_ask, ask_qty }`
 - `CandleClosed { symbol, candle }` — once per closed bar
 
 Heartbeat: every loop iteration when at least one event was emitted.
@@ -87,6 +87,9 @@ Emits `FeedsSnapshot { symbol, snapshot }` per polling cycle (default
 Per-symbol `SymbolState` updated on every `CandleClosed`. Runs the
 regime detector + the active strategies; if any produces a trade
 candidate, emits `PreSignalEmitted { pre_signal, regime, ... }`.
+Streaming `bookTicker` quantity deltas also update rolling order-flow
+imbalance (OFI), which strategies can use as a microstructure
+confirmation signal.
 
 Skips processing when the WIB schedule is in the dead zone:
 
@@ -324,9 +327,40 @@ DataAgent: CandleClosed(BTCUSDT, candle)
 
 ---
 
-## 6. Message flow — fail-closed scenarios
+## 6. Quant research and microstructure modules
 
-### 6.1 Manager LLM down
+The library now includes reusable quant primitives for the roadmap items
+from `prompt-1777632664168.md`:
+
+- `src/research/` — IC/IR tracking, IC decay curves, walk-forward splits,
+  and permutation p-values for signal significance checks.
+- `src/microstructure/` — OFI, VPIN, and toxicity helpers for filtering
+  or confirming entries during adverse order-flow regimes.
+- `src/portfolio/` — capped Kelly sizing, volatility targeting,
+  return correlation, exposure caps, historical VaR, and CVaR utilities.
+- `src/execution/quality.rs` — implementation shortfall decomposition
+  into delay cost and market impact.
+- `src/execution/limit_order.rs` — join/cross/post-only planning plus
+  deterministic fill-probability estimates.
+- `src/strategy/multi_timeframe.rs` — weighted multi-timeframe vote
+  aggregation for higher-timeframe confirmation.
+- `src/backtest/monte_carlo.rs` — drawdown confidence intervals from
+  deterministic PnL reshuffles.
+- `src/strategy/hmm.rs` and `src/strategy/kalman.rs` — probabilistic
+  regime inference and trend estimation primitives.
+- `src/strategy/pairs.rs` and `src/feeds/funding_arb.rs` — pairs-trading
+  spread helpers and funding-edge classification.
+- `src/feeds/alt_data.rs` and `src/feeds/options.rs` — normalized
+  alternative-data and options-skew sentiment scores.
+
+These modules are intentionally independent and test-covered so they can
+be wired deeper into live sizing/strategy selection in small, auditable PRs.
+
+---
+
+## 7. Message flow — fail-closed scenarios
+
+### 7.1 Manager LLM down
 
 ```
 TraderManagerAgent:
@@ -337,7 +371,7 @@ TraderManagerAgent:
 ExecutionAgent: sees Veto, no order dispatched.
 ```
 
-### 6.2 Survival mode = Frozen
+### 7.2 Survival mode = Frozen
 
 ```
 TraderManagerAgent:
@@ -346,7 +380,7 @@ TraderManagerAgent:
        (no LLM call made)
 ```
 
-### 6.3 Death line breach
+### 7.3 Death line breach
 
 ```
 SurvivalAgent (every 15s):
@@ -359,7 +393,7 @@ ExecutionAgent: closes every open position at market.
 RiskAgent: subsequent verdicts now blocked by survival hard-gate.
 ```
 
-### 6.4 Watchdog trip
+### 7.4 Watchdog trip
 
 ```
 DataAgent stops emitting heartbeats for 91 seconds.

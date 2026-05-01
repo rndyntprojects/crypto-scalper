@@ -19,6 +19,7 @@ use crate::agents::messages::{
 };
 use crate::agents::MessageBus;
 use crate::data::Side;
+use crate::execution::tcm::TransactionCostModel;
 use crate::execution::RiskManager;
 use crate::learning::LearningPolicy;
 use parking_lot::Mutex;
@@ -35,6 +36,7 @@ pub struct RiskAgentConfig {
     /// trades. Binance reports funding as a fraction (e.g. 0.0005 ==
     /// 0.05%). Default 0.001 = 0.1%.
     pub funding_block_threshold: f64,
+    pub tcm: TransactionCostModel,
 }
 
 impl Default for RiskAgentConfig {
@@ -43,6 +45,12 @@ impl Default for RiskAgentConfig {
             base_min_ta_threshold: 60,
             base_min_llm_floor: 70,
             funding_block_threshold: 0.001,
+            tcm: TransactionCostModel {
+                taker_fee_bps: 4.0,
+                maker_fee_bps: -1.0,
+                avg_slippage_bps: 2.0,
+                market_impact_bps: 1.0,
+            },
         }
     }
 }
@@ -56,6 +64,7 @@ pub fn spawn(
     let mut rx = bus.subscribe();
     let survival: Arc<Mutex<Option<SurvivalState>>> = Arc::new(Mutex::new(None));
     let funding: Arc<Mutex<HashMap<String, f64>>> = Arc::new(Mutex::new(HashMap::new()));
+    let spreads: Arc<Mutex<HashMap<String, f64>>> = Arc::new(Mutex::new(HashMap::new()));
 
     tokio::spawn(async move {
         info!("risk agent starting");
@@ -71,6 +80,21 @@ pub fn spawn(
                 }) => {
                     if let Some(f) = &snapshot.funding {
                         funding.lock().insert(symbol, f.rate);
+                    }
+                    continue;
+                }
+                AgentEvent::BookTicker {
+                    symbol,
+                    best_bid,
+                    bid_qty: _,
+                    best_ask,
+                    ask_qty: _,
+                } => {
+                    let mid = (best_bid + best_ask) / 2.0;
+                    if mid > 0.0 && best_ask >= best_bid {
+                        spreads
+                            .lock()
+                            .insert(symbol, (best_ask - best_bid) / mid * 100.0);
                     }
                     continue;
                 }
@@ -154,6 +178,30 @@ pub fn spawn(
                             effective_llm_floor: llm_floor,
                             matched_lessons: verdict.matched_lessons,
                             reason: Some(e.to_string()),
+                        }));
+                        continue;
+                    }
+
+                    let spread_pct = spreads.lock().get(&signal.symbol).copied();
+
+                    if let Err(e) = risk.validate_signal(
+                        signal.entry,
+                        signal.stop_loss,
+                        signal.take_profit,
+                        spread_pct,
+                        &cfg.tcm,
+                    ) {
+                        warn!(symbol = %signal.symbol, reason = %e, "risk signal gate blocked");
+                        bus.publish(AgentEvent::RiskVerdict(RiskVerdictMsg {
+                            signal: signal.clone(),
+                            regime,
+                            outcome: RiskOutcome::Blocked,
+                            size: 0.0,
+                            size_multiplier: verdict.size_multiplier,
+                            effective_ta_threshold,
+                            effective_llm_floor: llm_floor,
+                            matched_lessons: verdict.matched_lessons,
+                            reason: Some(e),
                         }));
                         continue;
                     }

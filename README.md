@@ -50,6 +50,9 @@ trading.
 - **LLM via OpenRouter by default** — one key (`OPENROUTER_API_KEY`)
   unlocks Claude / GPT / Gemini / DeepSeek / Qwen. Anthropic native,
   OpenAI, Together, and Groq are all supported via the same engine.
+- **Conservative risk gates** — entries must pass spread, reward:risk,
+  transaction-cost-adjusted edge, daily-loss, drawdown, position-count,
+  and notional-cap checks before any LLM/manager approval can reach execution.
 - **Broker-side risk** — every entry pushes a paired `STOP_MARKET` +
   `TAKE_PROFIT_MARKET` to Binance with `closePosition=true`, so the
   position exits even if the bot crashes.
@@ -138,13 +141,15 @@ sensible default — you can run with no overlay at all in paper mode.
 | `[strategy]` | active strategies, TA confidence floor | [docs/CONFIG.md](docs/CONFIG.md#strategy) |
 | `[llm]` | brain LLM provider, model, key, fallback | [docs/CONFIG.md](docs/CONFIG.md#llm) |
 | `[manager]` | manager LLM (final verdict layer) | [docs/CONFIG.md](docs/CONFIG.md#manager) |
-| `[risk]` | per-trade %, max positions, daily-loss / drawdown / leverage / spread caps, equity | [docs/CONFIG.md](docs/CONFIG.md#risk) |
+| `[risk]` | per-trade %, max positions, daily-loss / drawdown / leverage / spread / edge / notional caps, equity | [docs/CONFIG.md](docs/CONFIG.md#risk) |
 | `[schedule]` | WIB dead-zone hours | [docs/CONFIG.md](docs/CONFIG.md#schedule) |
 | `[feeds]` | external feed API keys + RSS list | [docs/CONFIG.md](docs/CONFIG.md#feeds) |
 | `[monitoring]` | Telegram, log level, SQLite path, metrics bind | [docs/CONFIG.md](docs/CONFIG.md#monitoring) |
-| `[backtest]` | data dir, time window | [docs/CONFIG.md](docs/CONFIG.md#backtest) |
+| `[backtest]` | data dir, time window, TCM costs, Sharpe/Sortino annualization | [docs/CONFIG.md](docs/CONFIG.md#backtest) |
 | `[survival]` | death line, cooldowns, ratchet, news blackout | [docs/SURVIVAL.md](docs/SURVIVAL.md) |
 | `[control]` | Telegram command panel, allow-listed user IDs | [docs/CONTROL.md](docs/CONTROL.md) |
+
+Quant roadmap progress is tracked in [docs/QUANT_ROADMAP.md](docs/QUANT_ROADMAP.md).
 
 ### LLM provider matrix
 
@@ -286,7 +291,8 @@ open_time_ms,open,high,low,close,volume
 ```
 
 Run with `[mode] run_mode = "backtest"`; you'll get a per-symbol report
-with WR, profit factor, Sharpe, Sortino, and max drawdown.
+with WR, profit factor, annualized Sharpe/Sortino, and max drawdown. The
+simulator subtracts entry/exit fees, adverse slippage, and market-impact cost.
 
 ## Project Layout
 
@@ -295,7 +301,10 @@ src/
 ├── config.rs            # TOML + ENV loader (with [survival] / [control] defaults)
 ├── data/                # Layer 1 — WS, OHLCV builder, order book
 ├── indicators/          # Incremental TA primitives (EMA, RSI, BB, ATR, ADX, VWAP, …)
+├── microstructure/      # OFI, VPIN, toxicity analytics
 ├── strategy/            # Layer 2 — symbol state, regime detector, 5 strategies
+├── research/            # IC/IR, decay, walk-forward, permutation significance
+├── portfolio/           # Kelly, vol target, correlation, VaR/CVaR helpers
 ├── feeds/               # External feeds (F&G, funding, news, sentiment, on-chain)
 ├── llm/                 # Layer 3 — context builder, prompts, multi-provider engine
 ├── execution/           # Layer 4 — risk gates, paper/Binance exchanges, position book
@@ -304,6 +313,8 @@ src/
 ├── agents/              # 12-agent runtime (data/feeds/signal/risk/brain/manager/
 │                        # execution/monitor/learning/survival/control/watchdog)
 ├── backtest/            # Replay engine + performance metrics
+├── research/            # IC/IR, walk-forward, Monte Carlo/significance helpers
+├── portfolio/           # Kelly, vol target, correlation, exposure, VaR/CVaR helpers
 ├── lib.rs               # Module re-exports
 └── main.rs              # Multi-agent orchestrator binary `aria`
 ```
@@ -313,7 +324,7 @@ src/
 ```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings   # 0 warnings
-cargo test --lib                                           # 34/34 passing
+cargo test --lib
 cargo build --release
 ```
 

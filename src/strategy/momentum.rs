@@ -53,9 +53,14 @@ impl Strategy for Momentum {
             return None;
         };
 
-        let mut score: f64 = 65.0;  // base raised: vol>=2.0 + ROC + trend align already validated above
+        let mut score: f64 = 65.0;
         if vol_ratio >= 2.5 {
             score += 8.0;
+        }
+        if (side == Side::Long && s.last_ofi.unwrap_or(0.0) > 0.0)
+            || (side == Side::Short && s.last_ofi.unwrap_or(0.0) < 0.0)
+        {
+            score += 4.0;
         }
         if roc.abs() > 1.0 {
             score += 7.0;

@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use crypto_scalper::{
+    agents::messages::ControlCommand,
     agents::{
         bus::MessageBus, control::ControlAgentDeps, execution::ExecutionAgentDeps,
         manager::ManagerAgentConfig, messages::AgentEvent, risk::RiskAgentConfig,
@@ -16,12 +17,11 @@ use crypto_scalper::{
     backtest::{load_csv, BacktestEngine},
     config::Config,
     data::Timeframe,
-    execution::risk::RiskLimits,
-    agents::messages::ControlCommand,
     execution::{
-        binance::BinanceFutures, position::Position, Exchange, PaperExchange,
-        PositionBook, RiskManager,
+        binance::BinanceFutures, position::Position, Exchange, PaperExchange, PositionBook,
+        RiskManager,
     },
+    execution::{risk::RiskLimits, tcm::TransactionCostModel},
     feeds::{
         ExternalSnapshot, FearGreedClient, FundingClient, NewsClient, OnchainClient,
         SentimentClient,
@@ -168,6 +168,16 @@ async fn run_backtest(cfg: &Config) -> Result<()> {
             active: active.clone(),
             min_ta_confidence: cfg.strategy.min_ta_confidence,
             risk_per_trade_usd: cfg.risk.equity_usd * cfg.risk.risk_per_trade_pct / 100.0,
+            fee_bps: cfg.backtest.fee_bps,
+            slippage_bps: cfg.backtest.slippage_bps,
+            market_impact_bps: cfg.backtest.market_impact_bps,
+            min_reward_risk: cfg.risk.min_reward_risk,
+            max_position_notional_pct: cfg.risk.max_position_notional_pct,
+            min_net_edge_bps: cfg.risk.min_net_edge_bps,
+            assumed_daily_volume_usd: cfg.risk.assumed_daily_volume_usd,
+            equity_usd: cfg.risk.equity_usd,
+            trading_days_per_year: cfg.backtest.trading_days_per_year,
+            trades_per_day: cfg.backtest.trades_per_day,
         };
         let result = engine.run(&candles)?;
         info!(
@@ -211,6 +221,10 @@ async fn run_agents(cfg: Config) -> Result<()> {
             max_drawdown_pct: cfg.risk.max_drawdown_pct,
             max_leverage: cfg.risk.max_leverage,
             max_spread_pct: cfg.risk.max_spread_pct,
+            min_reward_risk: cfg.risk.min_reward_risk,
+            max_position_notional_pct: cfg.risk.max_position_notional_pct,
+            min_net_edge_bps: cfg.risk.min_net_edge_bps,
+            assumed_daily_volume_usd: cfg.risk.assumed_daily_volume_usd,
         },
         cfg.risk.equity_usd,
     ));
@@ -291,12 +305,8 @@ async fn run_agents(cfg: Config) -> Result<()> {
             .first()
             .and_then(|s| Timeframe::parse(s).ok())
             .unwrap_or(Timeframe { seconds: 300 });
-        crypto_scalper::data::bootstrap_states(
-            &states,
-            &cfg.exchange.rest_base_url,
-            &bootstrap_tf,
-        )
-        .await;
+        crypto_scalper::data::bootstrap_states(&states, &cfg.exchange.rest_base_url, &bootstrap_tf)
+            .await;
     }
 
     let active: Vec<StrategyName> = cfg
@@ -367,7 +377,10 @@ async fn run_agents(cfg: Config) -> Result<()> {
                 }
                 let n = recon.len();
                 book.reconcile(recon);
-                warn!(count = n, "startup: reconciled open positions from exchange");
+                warn!(
+                    count = n,
+                    "startup: reconciled open positions from exchange"
+                );
             }
             Ok(_) => info!("startup: no open positions to reconcile"),
             Err(e) => warn!(error = %e, "startup: position reconciliation failed"),
@@ -408,6 +421,12 @@ async fn run_agents(cfg: Config) -> Result<()> {
         RiskAgentConfig {
             base_min_ta_threshold: cfg.strategy.min_ta_confidence,
             base_min_llm_floor: cfg.llm.min_confidence,
+            tcm: TransactionCostModel {
+                taker_fee_bps: cfg.backtest.fee_bps,
+                maker_fee_bps: -1.0,
+                avg_slippage_bps: cfg.backtest.slippage_bps,
+                market_impact_bps: cfg.backtest.market_impact_bps,
+            },
             ..RiskAgentConfig::default()
         },
     );
@@ -431,6 +450,7 @@ async fn run_agents(cfg: Config) -> Result<()> {
             http_referer: Some(cfg.manager.http_referer.clone()).filter(|s| !s.is_empty()),
             http_app_title: Some(cfg.manager.http_app_title.clone()).filter(|s| !s.is_empty()),
             fast_approve_min_conf: cfg.manager.fast_approve_min_conf,
+            fail_closed_without_llm: cfg.mode.run_mode == "live" && !cfg.mode.dry_run,
         },
         policy.clone(),
         Arc::clone(&feeds_cache),
@@ -560,9 +580,7 @@ async fn run_agents(cfg: Config) -> Result<()> {
                 let secs = (tomorrow - now).num_seconds().max(1) as u64;
                 tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
                 risk_reset.reset_daily();
-                bus_reset.publish(AgentEvent::ControlCommand(
-                    ControlCommand::ResetDaily,
-                ));
+                bus_reset.publish(AgentEvent::ControlCommand(ControlCommand::ResetDaily));
                 tracing::info!("midnight UTC: daily risk counters reset");
             }
         });
