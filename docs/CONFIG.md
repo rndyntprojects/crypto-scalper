@@ -173,7 +173,7 @@ the risk/LLM pipeline. It does not directly size orders.
 |---|---|---|
 | `cryptopanic_api_key` | `""` | env `CRYPTOPANIC_API_KEY` |
 | `lunarcrush_api_key` | `""` | env `LUNARCRUSH_API_KEY` |
-| `glassnode_api_key` | `""` | env `GLASSNODE_API_KEY`; optional BTC/ETH exchange flow + SOPR |
+| `glassnode_api_key` | `""` | env `GLASSNODE_API_KEY`; optional BTC/ETH exchange inflow/outflow + SOPR |
 | `whalealert_api_key` | `""` | env `WHALE_ALERT_API_KEY`; optional BTC/ETH whale tx count |
 | `deribit_base_url` | `"https://www.deribit.com"` | public Deribit endpoint for BTC/ETH options IV skew |
 | `rss_feeds` | CoinDesk, Decrypt, CoinTelegraph | RSS news sources (no key needed) |

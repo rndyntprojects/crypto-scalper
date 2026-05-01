@@ -53,24 +53,16 @@ impl OnchainClient {
 
     pub async fn fetch(&self, symbol_upper: &str) -> anyhow::Result<OnchainSnapshot> {
         let asset = OnchainAsset::from_symbol(symbol_upper);
-        let (exchange_flow, sopr, whale_tx) = if let Some(asset) = asset {
-            let glassnode_flow = self.fetch_glassnode_exchange_net(asset);
+        let (exchange_flows, sopr, whale_tx) = if let Some(asset) = asset {
+            let glassnode_flows = self.fetch_glassnode_exchange_flows(asset);
             let glassnode_sopr = self.fetch_glassnode_sopr(asset);
             let whale_alert = self.fetch_whale_alert_count(asset);
-            tokio::join!(glassnode_flow, glassnode_sopr, whale_alert)
+            tokio::join!(glassnode_flows, glassnode_sopr, whale_alert)
         } else {
             (None, None, None)
         };
 
-        let (exchange_inflow_24h, exchange_outflow_24h) = exchange_flow
-            .map(|net| {
-                if net >= 0.0 {
-                    (Some(net), Some(0.0))
-                } else {
-                    (Some(0.0), Some(net.abs()))
-                }
-            })
-            .unwrap_or((None, None));
+        let (exchange_inflow_24h, exchange_outflow_24h) = exchange_flows.unwrap_or((None, None));
 
         Ok(OnchainSnapshot {
             symbol: symbol_upper.to_string(),
@@ -81,19 +73,43 @@ impl OnchainClient {
         })
     }
 
-    async fn fetch_glassnode_exchange_net(&self, asset: OnchainAsset) -> Option<f64> {
-        let key = self.glassnode_key.as_ref().filter(|x| !x.is_empty())?;
-        let url = format!(
-            "{}/v1/metrics/transactions/transfers_volume_exchanges_net",
-            self.glassnode_base_url.trim_end_matches('/')
+    async fn fetch_glassnode_exchange_flows(
+        &self,
+        asset: OnchainAsset,
+    ) -> Option<(Option<f64>, Option<f64>)> {
+        let inflow = self.fetch_glassnode_metric(
+            asset,
+            "/v1/metrics/transactions/transfers_volume_to_exchanges_sum",
+            "24h",
         );
+        let outflow = self.fetch_glassnode_metric(
+            asset,
+            "/v1/metrics/transactions/transfers_volume_from_exchanges_sum",
+            "24h",
+        );
+        let (inflow, outflow) = tokio::join!(inflow, outflow);
+        if inflow.is_some() || outflow.is_some() {
+            Some((inflow, outflow))
+        } else {
+            None
+        }
+    }
+
+    async fn fetch_glassnode_metric(
+        &self,
+        asset: OnchainAsset,
+        path: &str,
+        interval: &str,
+    ) -> Option<f64> {
+        let key = self.glassnode_key.as_ref().filter(|x| !x.is_empty())?;
+        let url = format!("{}{}", self.glassnode_base_url.trim_end_matches('/'), path);
         let value = self
             .client
             .get(url)
             .query(&[
                 ("api_key", key.as_str()),
                 ("a", asset.glassnode_asset()),
-                ("i", "24h"),
+                ("i", interval),
             ])
             .send()
             .await
@@ -107,28 +123,8 @@ impl OnchainClient {
     }
 
     async fn fetch_glassnode_sopr(&self, asset: OnchainAsset) -> Option<f64> {
-        let key = self.glassnode_key.as_ref().filter(|x| !x.is_empty())?;
-        let url = format!(
-            "{}/v1/metrics/indicators/sopr_adjusted",
-            self.glassnode_base_url.trim_end_matches('/')
-        );
-        let value = self
-            .client
-            .get(url)
-            .query(&[
-                ("api_key", key.as_str()),
-                ("a", asset.glassnode_asset()),
-                ("i", "1h"),
-            ])
-            .send()
+        self.fetch_glassnode_metric(asset, "/v1/metrics/indicators/sopr_adjusted", "1h")
             .await
-            .ok()?
-            .error_for_status()
-            .ok()?
-            .json::<Value>()
-            .await
-            .ok()?;
-        latest_metric_value(&value)
     }
 
     async fn fetch_whale_alert_count(&self, asset: OnchainAsset) -> Option<u32> {

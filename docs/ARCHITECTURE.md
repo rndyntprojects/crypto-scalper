@@ -353,7 +353,7 @@ from `prompt-1777632664168.md`:
 - `src/feeds/alt_data.rs` and `src/feeds/options.rs` — normalized
   alternative-data scoring and public Deribit BTC/ETH options-skew
   snapshots.
-- `src/feeds/onchain.rs` — optional Glassnode exchange-flow/SOPR and
+- `src/feeds/onchain.rs` — optional Glassnode exchange inflow/outflow/SOPR and
   Whale Alert large-transaction context, fail-soft when keys are absent.
 - `[advanced_alpha]` can wire external-data/funding/Kalman context into
   `SignalAgent` as a pre-risk confirmation gate. It is disabled by
