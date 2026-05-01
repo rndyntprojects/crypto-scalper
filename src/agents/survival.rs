@@ -492,6 +492,10 @@ mod tests {
             max_drawdown_pct: 10.0,
             max_leverage: 5,
             max_spread_pct: 0.05,
+            min_reward_risk: 1.2,
+            max_position_notional_pct: 100.0,
+            min_net_edge_bps: 1.0,
+            assumed_daily_volume_usd: 1_000_000_000.0,
         }
     }
 

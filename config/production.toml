@@ -4,7 +4,27 @@ run_mode = "live"
 dry_run  = false
 
 [risk]
-risk_per_trade_pct = 0.8
-max_open_positions = 3
-max_daily_loss_pct = 3.0
-max_drawdown_pct   = 10.0
+risk_per_trade_pct = 0.25
+max_open_positions = 2
+max_daily_loss_pct = 1.5
+max_drawdown_pct   = 5.0
+max_leverage       = 2
+max_spread_pct     = 0.02
+min_reward_risk    = 1.30
+max_position_notional_pct = 25.0
+min_net_edge_bps = 2.0
+assumed_daily_volume_usd = 1000000000.0
+
+[manager]
+enabled = true
+fast_approve_min_conf = 95
+
+[survival]
+loss_streak_short = 2
+loss_streak_short_cooldown_min = 90
+loss_streak_long = 4
+loss_streak_long_window_min = 60
+loss_streak_long_cooldown_min = 360
+daily_loss_count = 5
+auto_flat_drawdown_pct = 4.0
+daily_pnl_ratchet_pct = 0.75

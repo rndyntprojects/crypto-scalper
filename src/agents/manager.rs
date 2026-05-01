@@ -48,6 +48,20 @@ pub struct ManagerAgentConfig {
     /// (Optimisation: if Brain conf >= this and no lessons matched,
     /// skip the manager call to save tokens.)
     pub fast_approve_min_conf: u8,
+    pub fail_closed_without_llm: bool,
+}
+
+fn manager_off_action(
+    brain_offline_fallback: bool,
+    fail_closed_without_llm: bool,
+) -> ManagerAction {
+    if fail_closed_without_llm && brain_offline_fallback {
+        ManagerAction::Veto {
+            reason: "manager unavailable while brain is TA-only; failing closed".into(),
+        }
+    } else {
+        ManagerAction::Approve
+    }
 }
 
 impl Default for ManagerAgentConfig {
@@ -63,6 +77,7 @@ impl Default for ManagerAgentConfig {
             http_referer: None,
             http_app_title: None,
             fast_approve_min_conf: 90,
+            fail_closed_without_llm: false,
         }
     }
 }
@@ -128,7 +143,9 @@ pub fn spawn(
                             .as_ref()
                             .map(|s| matches!(s.mode, SurvivalMode::Healthy))
                             .unwrap_or(true);
-                    let action = if manager_off || fast_approve {
+                    let action = if manager_off {
+                        manager_off_action(brain.offline_fallback, cfg.fail_closed_without_llm)
+                    } else if fast_approve {
                         ManagerAction::Approve
                     } else {
                         match call_manager_llm(
@@ -168,7 +185,7 @@ pub fn spawn(
                         proposal,
                         action,
                         latency_ms: latency,
-                        offline_fallback: !cfg.enabled || cfg.api_key.is_empty(),
+                        offline_fallback: manager_off,
                         brain_outcome: brain,
                     }));
                 }
@@ -585,5 +602,21 @@ mod tests {
             }
             _ => panic!("expected adjust"),
         }
+    }
+
+    #[test]
+    fn manager_off_fails_closed_when_brain_is_ta_only_in_live_mode() {
+        assert!(matches!(
+            manager_off_action(true, true),
+            ManagerAction::Veto { .. }
+        ));
+        assert!(matches!(
+            manager_off_action(true, false),
+            ManagerAction::Approve
+        ));
+        assert!(matches!(
+            manager_off_action(false, true),
+            ManagerAction::Approve
+        ));
     }
 }
