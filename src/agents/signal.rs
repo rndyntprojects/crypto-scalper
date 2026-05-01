@@ -4,9 +4,15 @@
 
 use crate::agents::messages::AgentEvent;
 use crate::agents::MessageBus;
-use crate::config::Schedule;
+use crate::config::{AdvancedAlphaCfg, Schedule};
+use crate::data::Side;
+use crate::feeds::ExternalSnapshot;
 use crate::microstructure::Ofi;
 use crate::strategy::{
+    alpha_gate::{
+        advanced_alpha_gate, alt_data_inputs_from_snapshot, funding_rate_from_snapshot,
+        kalman_trend_score, AdvancedAlphaInputs, AlphaGateDecision,
+    },
     ema_ribbon::EmaRibbon,
     mean_reversion::MeanReversion,
     momentum::Momentum,
@@ -28,13 +34,18 @@ pub fn spawn(
     states: Arc<Mutex<HashMap<String, SymbolState>>>,
     active: Vec<StrategyName>,
     schedule: Schedule,
+    advanced_alpha: AdvancedAlphaCfg,
 ) -> JoinHandle<()> {
     let mut rx = bus.subscribe();
     tokio::spawn(async move {
         info!(?active, "signal agent starting");
         let mut ofi_by_symbol: HashMap<String, Ofi> = HashMap::new();
+        let mut feeds_by_symbol: HashMap<String, ExternalSnapshot> = HashMap::new();
         while let Ok(ev) = rx.recv().await {
             match ev {
+                AgentEvent::FeedsSnapshot(msg) => {
+                    feeds_by_symbol.insert(msg.symbol, msg.snapshot);
+                }
                 AgentEvent::BookTicker {
                     symbol,
                     best_bid,
@@ -121,7 +132,13 @@ pub fn spawn(
                                 }
                             }
                         }
-                        (best, regime)
+                        let filtered = apply_advanced_alpha(
+                            best,
+                            state,
+                            feeds_by_symbol.get(&symbol),
+                            &advanced_alpha,
+                        );
+                        (filtered, regime)
                     };
                     if let Some(signal) = best {
                         bus.publish(AgentEvent::PreSignalEmitted {
@@ -147,6 +164,44 @@ pub fn spawn(
     })
 }
 
+fn apply_advanced_alpha(
+    signal: Option<PreSignal>,
+    state: &SymbolState,
+    snapshot: Option<&ExternalSnapshot>,
+    cfg: &AdvancedAlphaCfg,
+) -> Option<PreSignal> {
+    if !cfg.enabled {
+        return signal;
+    }
+    let mut signal = signal?;
+    let snapshot = snapshot.cloned().unwrap_or_default();
+    let prices: Vec<f64> = state.candles.iter().map(|c| c.close).collect();
+    let decision = advanced_alpha_gate(
+        AdvancedAlphaInputs {
+            alt_data: alt_data_inputs_from_snapshot(&snapshot),
+            funding_rate: funding_rate_from_snapshot(&snapshot),
+            trend_score: kalman_trend_score(
+                &prices,
+                cfg.kalman_process_noise,
+                cfg.kalman_measurement_noise,
+            ),
+            min_abs_score: cfg.min_abs_score,
+        },
+        matches!(signal.side, Side::Long),
+    );
+    match decision {
+        AlphaGateDecision::Allow => Some(signal),
+        AlphaGateDecision::Reduce => {
+            signal.ta_confidence = signal
+                .ta_confidence
+                .saturating_sub(cfg.reduce_confidence_delta);
+            signal.reason = format!("{} | alpha_gate=reduce", signal.reason);
+            Some(signal)
+        }
+        AlphaGateDecision::Block => None,
+    }
+}
+
 /// True iff the current UTC time falls inside the configured WIB
 /// dead zone (e.g. 03:00–07:00 WIB == 20:00–00:00 UTC). The window
 /// is wrap-aware: `start > end` means it crosses midnight.
@@ -168,6 +223,39 @@ fn in_dead_zone(s: &Schedule) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::{Candle, Side};
+    use crate::strategy::state::{PreSignal, StrategyName, SymbolState};
+
+    fn test_signal() -> PreSignal {
+        PreSignal {
+            symbol: "BTCUSDT".into(),
+            strategy: StrategyName::Momentum,
+            side: Side::Long,
+            entry: 100.0,
+            stop_loss: 99.0,
+            take_profit: 103.0,
+            ta_confidence: 80,
+            reason: "unit".into(),
+        }
+    }
+
+    fn warmed_state() -> SymbolState {
+        let mut state = SymbolState::new("BTCUSDT");
+        let now = Utc::now();
+        for i in 0..5 {
+            let price = 100.0 + i as f64;
+            state.on_closed(Candle {
+                open_time: now,
+                close_time: now,
+                open: price - 0.5,
+                high: price + 1.0,
+                low: price - 1.0,
+                close: price,
+                volume: 100.0,
+            });
+        }
+        state
+    }
 
     #[test]
     fn dead_zone_disabled_when_start_eq_end() {
@@ -177,5 +265,38 @@ mod tests {
         };
         // Just check the function doesn't say true for a degenerate config.
         assert!(!in_dead_zone(&s));
+    }
+
+    #[test]
+    fn advanced_alpha_disabled_is_noop() {
+        let signal = test_signal();
+        let state = warmed_state();
+        let filtered = apply_advanced_alpha(
+            Some(signal.clone()),
+            &state,
+            None,
+            &AdvancedAlphaCfg::default(),
+        );
+        assert_eq!(filtered.unwrap().ta_confidence, signal.ta_confidence);
+    }
+
+    #[test]
+    fn advanced_alpha_can_reduce_confidence() {
+        let signal = test_signal();
+        let state = warmed_state();
+        let filtered = apply_advanced_alpha(
+            Some(signal),
+            &state,
+            None,
+            &AdvancedAlphaCfg {
+                enabled: true,
+                min_abs_score: 0.6,
+                reduce_confidence_delta: 7,
+                ..AdvancedAlphaCfg::default()
+            },
+        )
+        .expect("neutral alpha context should reduce, not block");
+        assert_eq!(filtered.ta_confidence, 73);
+        assert!(filtered.reason.contains("alpha_gate=reduce"));
     }
 }

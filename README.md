@@ -139,6 +139,7 @@ sensible default — you can run with no overlay at all in paper mode.
 | `[exchange]` | Binance URLs, `api_key`, `api_secret`, `recv_window_ms` | [docs/CONFIG.md](docs/CONFIG.md#exchange) |
 | `[pairs]` | `symbols`, `timeframes` | [docs/CONFIG.md](docs/CONFIG.md#pairs) |
 | `[strategy]` | active strategies, TA confidence floor | [docs/CONFIG.md](docs/CONFIG.md#strategy) |
+| `[advanced_alpha]` | disabled-by-default alpha gate for external-data/trend confirmation | [docs/CONFIG.md](docs/CONFIG.md#advanced_alpha) |
 | `[llm]` | brain LLM provider, model, key, fallback | [docs/CONFIG.md](docs/CONFIG.md#llm) |
 | `[manager]` | manager LLM (final verdict layer) | [docs/CONFIG.md](docs/CONFIG.md#manager) |
 | `[risk]` | per-trade %, max positions, daily-loss / drawdown / leverage / spread / edge / notional caps, equity | [docs/CONFIG.md](docs/CONFIG.md#risk) |

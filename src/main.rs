@@ -424,6 +424,7 @@ async fn run_agents(cfg: Config) -> Result<()> {
         Arc::clone(&states),
         active.clone(),
         cfg.schedule.clone(),
+        cfg.advanced_alpha.clone(),
     );
     let _risk = crypto_scalper::agents::risk::spawn(
         bus.clone(),

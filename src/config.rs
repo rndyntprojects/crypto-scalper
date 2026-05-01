@@ -11,6 +11,8 @@ pub struct Config {
     pub exchange: Exchange,
     pub pairs: Pairs,
     pub strategy: StrategyCfg,
+    #[serde(default)]
+    pub advanced_alpha: AdvancedAlphaCfg,
     pub llm: LlmCfg,
     #[serde(default)]
     pub manager: ManagerCfg,
@@ -55,6 +57,45 @@ pub struct StrategyCfg {
     pub mode: String,
     pub active: Vec<String>,
     pub min_ta_confidence: u8,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AdvancedAlphaCfg {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_alpha_min_abs_score")]
+    pub min_abs_score: f64,
+    #[serde(default = "default_alpha_reduce_confidence_delta")]
+    pub reduce_confidence_delta: u8,
+    #[serde(default = "default_alpha_process_noise")]
+    pub kalman_process_noise: f64,
+    #[serde(default = "default_alpha_measurement_noise")]
+    pub kalman_measurement_noise: f64,
+}
+
+fn default_alpha_min_abs_score() -> f64 {
+    0.2
+}
+fn default_alpha_reduce_confidence_delta() -> u8 {
+    5
+}
+fn default_alpha_process_noise() -> f64 {
+    0.01
+}
+fn default_alpha_measurement_noise() -> f64 {
+    1.0
+}
+
+impl Default for AdvancedAlphaCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_abs_score: default_alpha_min_abs_score(),
+            reduce_confidence_delta: default_alpha_reduce_confidence_delta(),
+            kalman_process_noise: default_alpha_process_noise(),
+            kalman_measurement_noise: default_alpha_measurement_noise(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

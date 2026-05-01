@@ -352,6 +352,9 @@ from `prompt-1777632664168.md`:
   spread helpers and funding-edge classification.
 - `src/feeds/alt_data.rs` and `src/feeds/options.rs` — normalized
   alternative-data and options-skew sentiment scores.
+- `[advanced_alpha]` can wire external-data/funding/Kalman context into
+  `SignalAgent` as a pre-risk confirmation gate. It is disabled by
+  default and never directly sizes orders.
 - Backtest mode emits a compact research report table by default; set
   `ARIA_RESEARCH_REPORT_FORMAT=json` for JSON output.
 

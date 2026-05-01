@@ -1,5 +1,5 @@
 use crate::feeds::funding_arb::{classify_funding, FundingArbSignal};
-use crate::feeds::{alt_data::alternative_data_score, alt_data::AltDataInputs};
+use crate::feeds::{alt_data::alternative_data_score, alt_data::AltDataInputs, ExternalSnapshot};
 use crate::strategy::kalman::KalmanTrend;
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +45,39 @@ pub fn kalman_trend_score(prices: &[f64], process_noise: f64, measurement_noise:
         trend.update(*price);
     }
     trend.trend_score(*prices.last().unwrap_or(first))
+}
+
+pub fn alt_data_inputs_from_snapshot(snapshot: &ExternalSnapshot) -> AltDataInputs {
+    AltDataInputs {
+        news_sentiment: snapshot.news.as_ref().map(|x| x.net_score).unwrap_or(0.0),
+        social_sentiment: snapshot
+            .sentiment
+            .as_ref()
+            .map(|x| x.sentiment)
+            .unwrap_or(0.0),
+        onchain_flow: onchain_flow_score(snapshot),
+        fear_greed: snapshot
+            .fear_greed
+            .as_ref()
+            .map(|x| x.value as f64)
+            .unwrap_or(50.0),
+    }
+}
+
+pub fn funding_rate_from_snapshot(snapshot: &ExternalSnapshot) -> f64 {
+    snapshot.funding.as_ref().map(|x| x.rate).unwrap_or(0.0)
+}
+
+fn onchain_flow_score(snapshot: &ExternalSnapshot) -> f64 {
+    let Some(onchain) = &snapshot.onchain else {
+        return 0.0;
+    };
+    match (onchain.exchange_inflow_24h, onchain.exchange_outflow_24h) {
+        (Some(inflow), Some(outflow)) if inflow + outflow > 0.0 => {
+            ((outflow - inflow) / (outflow + inflow)).clamp(-1.0, 1.0)
+        }
+        _ => 0.0,
+    }
 }
 
 #[cfg(test)]
@@ -103,5 +136,14 @@ mod tests {
             advanced_alpha_gate(negative_funding, false),
             AlphaGateDecision::Block
         );
+    }
+
+    #[test]
+    fn builds_neutral_alt_inputs_from_empty_snapshot() {
+        let inputs = alt_data_inputs_from_snapshot(&ExternalSnapshot::default());
+        assert_eq!(inputs.news_sentiment, 0.0);
+        assert_eq!(inputs.social_sentiment, 0.0);
+        assert_eq!(inputs.onchain_flow, 0.0);
+        assert_eq!(inputs.fear_greed, 50.0);
     }
 }

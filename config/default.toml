@@ -25,6 +25,15 @@ mode   = "adaptive"
 active = ["mean_reversion", "ema_ribbon", "momentum", "vwap_scalp", "squeeze"]
 min_ta_confidence = 65
 
+[advanced_alpha]
+# Disabled by default. When enabled, external data + Kalman trend context can
+# veto or modestly reduce pre-signal confidence before the risk/LLM pipeline.
+enabled = false
+min_abs_score = 0.20
+reduce_confidence_delta = 5
+kalman_process_noise = 0.01
+kalman_measurement_noise = 1.0
+
 [llm]
 # Default: OpenRouter (1 key, banyak model — Claude/GPT/Gemini/DeepSeek/Qwen).
 # Ganti ke "anthropic" kalau mau pakai Anthropic native.
