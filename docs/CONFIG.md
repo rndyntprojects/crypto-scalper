@@ -119,12 +119,16 @@ Env var: `MANAGER_API_KEY` (falls back to the brain LLM key if unset).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `risk_per_trade_pct` | `0.8` | percentage of equity to risk per trade *before* survival multiplier |
-| `max_open_positions` | `3` | hard cap on open positions |
-| `max_daily_loss_pct` | `3.0` | trip the circuit if today's PnL goes below this % |
-| `max_drawdown_pct` | `10.0` | trip the circuit if drawdown from peak crosses this |
-| `max_leverage` | `5` | passed to `Exchange::set_leverage()` at startup |
-| `max_spread_pct` | `0.03` | reject signals when bid/ask spread exceeds this |
+| `risk_per_trade_pct` | `0.35` | percentage of equity to risk per trade *before* survival multiplier |
+| `max_open_positions` | `2` | hard cap on open positions |
+| `max_daily_loss_pct` | `2.0` | trip the circuit if today's PnL goes below this % |
+| `max_drawdown_pct` | `6.0` | trip the circuit if drawdown from peak crosses this |
+| `max_leverage` | `3` | passed to `Exchange::set_leverage()` at startup |
+| `max_spread_pct` | `0.025` | reject signals when bid/ask spread exceeds this |
+| `min_reward_risk` | `1.20` | reject entries whose TP/SL reward:risk is below this |
+| `max_position_notional_pct` | `35.0` | cap position notional as % of equity before leverage |
+| `min_net_edge_bps` | `1.0` | reject entries whose TP edge is not positive after round-trip TCM cost |
+| `assumed_daily_volume_usd` | `1000000000.0` | liquidity assumption for market-impact cost estimates |
 | `equity_usd` | `5000.0` | seed equity (paper mode) / starting estimate (live, immediately reconciled) |
 
 In `live` mode, `equity_usd` is **only the seed value**.
@@ -181,6 +185,11 @@ crashes.
 | `data_dir` | `"data/historical"` | folder containing `<SYMBOL>.csv` files |
 | `from_ts` | `""` | optional ISO start time |
 | `to_ts` | `""` | optional ISO end time |
+| `fee_bps` | `4.0` | taker fee charged on entry and exit |
+| `slippage_bps` | `2.0` | base adverse fill slippage |
+| `market_impact_bps` | `1.0` | impact coefficient scaled by participation rate |
+| `trading_days_per_year` | `365.0` | annualization basis for Sharpe/Sortino |
+| `trades_per_day` | `12.0` | expected trade opportunities per day for annualization |
 
 Run with `[mode] run_mode = "backtest"`. Backtest runs synchronously
 and exits — no agents are spawned.

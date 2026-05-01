@@ -424,16 +424,16 @@ impl Exchange for BinanceFutures {
 fn format_quantity(symbol: &str, qty: f64) -> String {
     // step_size decimals by symbol (Binance USDT-M Futures defaults, 2025)
     let decimals: u32 = match symbol {
-        s if s.starts_with("BTC") => 3,   // step 0.001
-        s if s.starts_with("ETH") => 3,   // step 0.001
-        s if s.starts_with("BNB") => 2,   // step 0.01
-        s if s.starts_with("SOL") => 1,   // step 0.1
-        s if s.starts_with("DOGE") => 0,  // step 1
-        s if s.starts_with("XRP") => 1,   // step 0.1
-        s if s.starts_with("ADA") => 0,   // step 1
-        s if s.starts_with("AVAX") => 2,  // step 0.01
+        s if s.starts_with("BTC") => 3,                          // step 0.001
+        s if s.starts_with("ETH") => 3,                          // step 0.001
+        s if s.starts_with("BNB") => 2,                          // step 0.01
+        s if s.starts_with("SOL") => 1,                          // step 0.1
+        s if s.starts_with("DOGE") => 0,                         // step 1
+        s if s.starts_with("XRP") => 1,                          // step 0.1
+        s if s.starts_with("ADA") => 0,                          // step 1
+        s if s.starts_with("AVAX") => 2,                         // step 0.01
         s if s.starts_with("MATIC") | s.starts_with("POL") => 0, // step 1
-        _ => 3, // conservative default — 0.001
+        _ => 3,                                                  // conservative default — 0.001
     };
     let factor = 10_f64.powi(decimals as i32);
     let rounded = (qty * factor).floor() / factor;

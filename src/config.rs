@@ -148,6 +148,10 @@ pub struct RiskCfg {
     pub max_drawdown_pct: f64,
     pub max_leverage: u32,
     pub max_spread_pct: f64,
+    pub min_reward_risk: f64,
+    pub max_position_notional_pct: f64,
+    pub min_net_edge_bps: f64,
+    pub assumed_daily_volume_usd: f64,
     pub equity_usd: f64,
 }
 
@@ -189,6 +193,33 @@ pub struct Backtest {
     pub from_ts: String,
     #[serde(default)]
     pub to_ts: String,
+    #[serde(default = "default_backtest_fee_bps")]
+    pub fee_bps: f64,
+    #[serde(default = "default_backtest_slippage_bps")]
+    pub slippage_bps: f64,
+    #[serde(default = "default_backtest_market_impact_bps")]
+    pub market_impact_bps: f64,
+    #[serde(default = "default_backtest_trading_days_per_year")]
+    pub trading_days_per_year: f64,
+    #[serde(default = "default_backtest_trades_per_day")]
+    pub trades_per_day: f64,
+}
+
+fn default_backtest_fee_bps() -> f64 {
+    4.0
+}
+
+fn default_backtest_slippage_bps() -> f64 {
+    2.0
+}
+fn default_backtest_market_impact_bps() -> f64 {
+    1.0
+}
+fn default_backtest_trading_days_per_year() -> f64 {
+    365.0
+}
+fn default_backtest_trades_per_day() -> f64 {
+    12.0
 }
 
 /// "Trade for Life" survival mechanics. Defaults are calibrated for
@@ -492,6 +523,33 @@ impl Config {
                 "risk.risk_per_trade_pct must be in (0, 5]".into(),
             ));
         }
+        if self.risk.min_reward_risk <= 0.0 {
+            return Err(ScalperError::Config(
+                "risk.min_reward_risk must be positive".into(),
+            ));
+        }
+        if self.risk.max_position_notional_pct <= 0.0
+            || self.risk.max_position_notional_pct > self.risk.max_leverage as f64 * 100.0
+        {
+            return Err(ScalperError::Config(
+                "risk.max_position_notional_pct must be positive and within leverage cap".into(),
+            ));
+        }
+        if self.risk.min_net_edge_bps < 0.0 {
+            return Err(ScalperError::Config(
+                "risk.min_net_edge_bps must be non-negative".into(),
+            ));
+        }
+        if self.risk.assumed_daily_volume_usd <= 0.0 {
+            return Err(ScalperError::Config(
+                "risk.assumed_daily_volume_usd must be positive".into(),
+            ));
+        }
+        if self.backtest.trading_days_per_year <= 0.0 || self.backtest.trades_per_day <= 0.0 {
+            return Err(ScalperError::Config(
+                "backtest annualization settings must be positive".into(),
+            ));
+        }
         if self.mode.run_mode == "live"
             && !self.mode.dry_run
             && (self.exchange.api_key.is_empty() || self.exchange.api_secret.is_empty())
@@ -576,6 +634,10 @@ max_daily_loss_pct = 3.0
 max_drawdown_pct = 10.0
 max_leverage = 5
 max_spread_pct = 0.03
+min_reward_risk = 1.2
+max_position_notional_pct = 35.0
+min_net_edge_bps = 1.0
+assumed_daily_volume_usd = 1000000000.0
 equity_usd = 5000.0
 
 [schedule]
