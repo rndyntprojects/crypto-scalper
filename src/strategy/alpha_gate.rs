@@ -22,8 +22,8 @@ pub fn advanced_alpha_gate(inputs: AdvancedAlphaInputs, signal_is_long: bool) ->
     let alt_score = alternative_data_score(inputs.alt_data) * directional;
     let trend_score = (inputs.trend_score / 100.0).clamp(-1.0, 1.0) * directional;
     let funding_penalty = match classify_funding(inputs.funding_rate, 1.0) {
-        FundingArbSignal::ReceiveFunding => 0.1,
-        FundingArbSignal::PayFundingOnlyWithStrongTrend => -0.1,
+        FundingArbSignal::ReceiveFunding => -0.1,
+        FundingArbSignal::PayFundingOnlyWithStrongTrend => 0.1,
         FundingArbSignal::Neutral => 0.0,
     } * directional;
     let score = alt_score * 0.45 + trend_score * 0.45 + funding_penalty;
@@ -68,5 +68,40 @@ mod tests {
             true,
         );
         assert_eq!(decision, AlphaGateDecision::Block);
+    }
+
+    #[test]
+    fn funding_direction_matches_perp_cashflow() {
+        let neutral = AltDataInputs {
+            fear_greed: 50.0,
+            ..AltDataInputs::default()
+        };
+        let positive_funding = AdvancedAlphaInputs {
+            alt_data: neutral,
+            funding_rate: 0.0003,
+            trend_score: 0.0,
+            min_abs_score: 0.05,
+        };
+        assert_eq!(
+            advanced_alpha_gate(positive_funding, true),
+            AlphaGateDecision::Block
+        );
+        assert_eq!(
+            advanced_alpha_gate(positive_funding, false),
+            AlphaGateDecision::Allow
+        );
+
+        let negative_funding = AdvancedAlphaInputs {
+            funding_rate: -0.0003,
+            ..positive_funding
+        };
+        assert_eq!(
+            advanced_alpha_gate(negative_funding, true),
+            AlphaGateDecision::Allow
+        );
+        assert_eq!(
+            advanced_alpha_gate(negative_funding, false),
+            AlphaGateDecision::Block
+        );
     }
 }
