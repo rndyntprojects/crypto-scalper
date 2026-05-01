@@ -4,11 +4,13 @@
 //! returns an optional `PreSignal`. The `Regime` detector picks which
 //! strategy gets consulted each candle.
 
+pub mod ab_test;
 pub mod ema_ribbon;
 pub mod mean_reversion;
 pub mod momentum;
 pub mod multi_timeframe;
 pub mod regime;
+pub mod retirement;
 pub mod squeeze;
 pub mod state;
 pub mod vwap_scalp;

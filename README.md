@@ -149,6 +149,8 @@ sensible default — you can run with no overlay at all in paper mode.
 | `[survival]` | death line, cooldowns, ratchet, news blackout | [docs/SURVIVAL.md](docs/SURVIVAL.md) |
 | `[control]` | Telegram command panel, allow-listed user IDs | [docs/CONTROL.md](docs/CONTROL.md) |
 
+Quant roadmap progress is tracked in [docs/QUANT_ROADMAP.md](docs/QUANT_ROADMAP.md).
+
 ### LLM provider matrix
 
 | Provider | `provider =` | `api_base` | Auth | Env var |
@@ -311,6 +313,8 @@ src/
 ├── agents/              # 12-agent runtime (data/feeds/signal/risk/brain/manager/
 │                        # execution/monitor/learning/survival/control/watchdog)
 ├── backtest/            # Replay engine + performance metrics
+├── research/            # IC/IR, walk-forward, Monte Carlo/significance helpers
+├── portfolio/           # Kelly, vol target, correlation, exposure, VaR/CVaR helpers
 ├── lib.rs               # Module re-exports
 └── main.rs              # Multi-agent orchestrator binary `aria`
 ```

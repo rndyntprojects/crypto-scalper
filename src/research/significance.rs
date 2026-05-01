@@ -1,5 +1,17 @@
 use crate::research::ic::pearson;
 
+pub fn win_rate_significance(wins: u32, total: u32) -> Option<f64> {
+    if total == 0 || wins > total {
+        return None;
+    }
+    let observed = wins.max(total - wins);
+    let mut tail = 0.0;
+    for k in observed..=total {
+        tail += binomial_probability(total, k, 0.5)?;
+    }
+    Some((tail * 2.0).min(1.0))
+}
+
 pub fn permutation_p_value(observations: &[(f64, f64)], permutations: usize) -> Option<f64> {
     if observations.len() < 4 || permutations == 0 {
         return None;
@@ -14,6 +26,18 @@ pub fn permutation_p_value(observations: &[(f64, f64)], permutations: usize) -> 
         }
     }
     Some((extreme as f64 + 1.0) / (permutations as f64 + 1.0))
+}
+
+fn binomial_probability(n: u32, k: u32, p: f64) -> Option<f64> {
+    if k > n || !(0.0..=1.0).contains(&p) {
+        return None;
+    }
+    let k = k.min(n - k);
+    let mut coeff = 1.0;
+    for i in 0..k {
+        coeff *= (n - i) as f64 / (i + 1) as f64;
+    }
+    Some(coeff * p.powi(k as i32) * (1.0 - p).powi((n - k) as i32))
 }
 
 fn rotate_returns(values: &mut [(f64, f64)], shift: usize) {
@@ -41,5 +65,12 @@ mod tests {
             .collect();
         let p = permutation_p_value(&observations, 19).unwrap();
         assert!(p > 0.0 && p <= 1.0);
+    }
+
+    #[test]
+    fn computes_win_rate_significance() {
+        let p = win_rate_significance(8, 10).unwrap();
+        assert!(p > 0.0 && p <= 1.0);
+        assert_eq!(win_rate_significance(11, 10), None);
     }
 }

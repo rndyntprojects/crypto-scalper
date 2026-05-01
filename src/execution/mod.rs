@@ -2,6 +2,7 @@
 
 pub mod binance;
 pub mod exchange;
+pub mod limit_order;
 pub mod orders;
 pub mod paper;
 pub mod position;

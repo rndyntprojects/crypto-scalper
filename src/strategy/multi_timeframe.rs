@@ -55,6 +55,23 @@ pub fn passes_timeframe_confirmation(
     }
 }
 
+pub fn freshness_weight(age_candles: usize, half_life_candles: f64) -> f64 {
+    if half_life_candles <= 0.0 {
+        return 0.0;
+    }
+    0.5_f64.powf(age_candles as f64 / half_life_candles)
+}
+
+pub fn confidence_with_freshness(
+    base_confidence: u8,
+    age_candles: usize,
+    half_life_candles: f64,
+) -> u8 {
+    (base_confidence as f64 * freshness_weight(age_candles, half_life_candles))
+        .round()
+        .clamp(0.0, 100.0) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +117,11 @@ mod tests {
             weight: 1.0,
         }];
         assert!(passes_timeframe_confirmation(&signal, &votes, 0.5));
+    }
+
+    #[test]
+    fn decays_stale_signal_confidence() {
+        assert_eq!(confidence_with_freshness(80, 0, 4.0), 80);
+        assert_eq!(confidence_with_freshness(80, 4, 4.0), 40);
     }
 }

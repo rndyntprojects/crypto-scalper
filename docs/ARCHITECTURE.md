@@ -337,11 +337,15 @@ from `prompt-1777632664168.md`:
 - `src/microstructure/` — OFI, VPIN, and toxicity helpers for filtering
   or confirming entries during adverse order-flow regimes.
 - `src/portfolio/` — capped Kelly sizing, volatility targeting,
-  return correlation, historical VaR, and CVaR utilities.
+  return correlation, exposure caps, historical VaR, and CVaR utilities.
 - `src/execution/quality.rs` — implementation shortfall decomposition
   into delay cost and market impact.
+- `src/execution/limit_order.rs` — join/cross/post-only planning plus
+  deterministic fill-probability estimates.
 - `src/strategy/multi_timeframe.rs` — weighted multi-timeframe vote
   aggregation for higher-timeframe confirmation.
+- `src/backtest/monte_carlo.rs` — drawdown confidence intervals from
+  deterministic PnL reshuffles.
 
 These modules are intentionally independent and test-covered so they can
 be wired deeper into live sizing/strategy selection in small, auditable PRs.
