@@ -22,7 +22,7 @@
 
 use crate::data::Side;
 use crate::portfolio::{
-    historical_cvar, historical_var, kelly_fraction, volatility_target_multiplier,
+    historical_cvar, kelly_fraction, volatility_target_multiplier,
 };
 use crate::research::ic::IcTracker;
 use crate::strategy::kalman::KalmanTrend;
