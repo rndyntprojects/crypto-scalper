@@ -134,7 +134,33 @@ pub fn spawn(
                                 StrategyName::VwapScalp => VwapScalp.evaluate(state, &candle),
                                 StrategyName::Squeeze => Squeeze.evaluate(state, &candle),
                             };
-                            if let Some(s) = sig {
+                            if let Some(mut s) = sig {
+                                // Multi-timeframe confirmation:
+                                // Use EMA200 as higher-timeframe trend filter.
+                                // Long signals need price > EMA200, shorts need price < EMA200.
+                                // If EMA200 is not warm, skip confirmation (allow trade).
+                                if let Some(ema200) = state.ema_200.value() {
+                                    let htf_aligned = match s.side {
+                                        Side::Long => candle.close > ema200,
+                                        Side::Short => candle.close < ema200,
+                                    };
+                                    if !htf_aligned {
+                                        // HTF contradicts — reduce confidence by 8 points
+                                        s.ta_confidence = s.ta_confidence.saturating_sub(8);
+                                        s.reason = format!(
+                                            "{} | HTF-contradict(ema200={:.2})",
+                                            s.reason, ema200
+                                        );
+                                    } else {
+                                        // HTF confirms — boost confidence by 3 points
+                                        s.ta_confidence = (s.ta_confidence + 3).min(100);
+                                        s.reason = format!(
+                                            "{} | HTF-confirm(ema200={:.2})",
+                                            s.reason, ema200
+                                        );
+                                    }
+                                }
+
                                 debug!(
                                     symbol = %symbol,
                                     strategy = %s.strategy.as_str(),

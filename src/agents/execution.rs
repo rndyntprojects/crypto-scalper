@@ -15,8 +15,8 @@ use crate::agents::messages::{
 use crate::agents::MessageBus;
 use crate::data::Side;
 use crate::execution::{
-    orders::OrderType, Exchange, OrderRequest, Position, PositionBook, PositionExitReason,
-    RiskManager,
+    orders::OrderType, Exchange, OrderRequest, Position, PositionBook, PositionConfig,
+    PositionExitReason, RiskManager,
 };
 use crate::execution::quality::{ExecutionQuality, TradeQualityRecord};
 use crate::execution::limit_order::plan_limit_order;
@@ -55,6 +55,14 @@ pub fn spawn(deps: ExecutionAgentDeps) -> JoinHandle<()> {
     let last_books: Arc<PlMutex<HashMap<String, (f64, f64, f64, f64)>>> = Arc::new(PlMutex::new(HashMap::new()));
     let exec_quality = Arc::new(PlMutex::new(ExecutionQuality::default()));
     let decision_prices: Arc<PlMutex<HashMap<String, f64>>> = Arc::new(PlMutex::new(HashMap::new()));
+    let pos_cfg = PositionConfig {
+        max_hold_secs: 1800,   // 30 min max hold for scalping
+        trail_atr_mult: 0.5,   // Trail at 0.5× ATR
+        trail_activate_r: 1.0, // Activate trailing at 1R profit
+        breakeven_r: 0.5,      // Move SL to entry at 0.5R profit
+        partial_tp_enabled: false, // Disabled — broker handles TP
+        partial_tp_r: 1.0,
+    };
 
     tokio::spawn(async move {
         info!("execution agent starting");
@@ -64,7 +72,7 @@ pub fn spawn(deps: ExecutionAgentDeps) -> JoinHandle<()> {
                     last_marks.lock().insert(symbol.clone(), trade.price);
                     // Mark-price exit checks happen here so we own the
                     // bus emission when a position closes.
-                    let exits = book.check_exits(&symbol, trade.price);
+                    let exits = book.check_exits(&symbol, trade.price, &pos_cfg);
                     for (pos, reason) in exits {
                         let pnl = crate::execution::position::pnl_usd(&pos, trade.price);
                         risk.on_position_closed(pnl);
@@ -280,10 +288,11 @@ pub fn spawn(deps: ExecutionAgentDeps) -> JoinHandle<()> {
                                 take_profit: req.take_profit,
                                 opened_at: Utc::now(),
                                 trailing_activated: false,
-                                // Use actual fill price so trailing stop activation
-                                // is anchored to real entry, not the requested price.
                                 peak_price: fill_price,
                                 trough_price: fill_price,
+                                atr_at_entry: 0.0, // Will use profit-based fallback
+                                partial_taken: false,
+                                breakeven_activated: false,
                             };
                             book.open(pos.clone());
 

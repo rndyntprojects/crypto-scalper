@@ -380,12 +380,15 @@ async fn run_agents(cfg: Config) -> Result<()> {
                         side: s.side,
                         size: s.size,
                         entry_price: s.entry_price,
-                        stop_loss: 0.0, // unknown — broker holds protective orders
+                        stop_loss: 0.0,
                         take_profit: 0.0,
                         opened_at: chrono::Utc::now(),
                         trailing_activated: false,
                         peak_price: s.mark_price,
                         trough_price: s.mark_price,
+                        atr_at_entry: 0.0,
+                        partial_taken: false,
+                        breakeven_activated: false,
                     };
                     recon.push(pos);
                     risk.on_position_opened();
@@ -529,6 +532,9 @@ async fn run_agents(cfg: Config) -> Result<()> {
                         trailing_activated: false,
                         peak_price: p.mark_price,
                         trough_price: p.mark_price,
+                        atr_at_entry: 0.0,
+                        partial_taken: false,
+                        breakeven_activated: false,
                     })
                     .collect();
                 if !recovered.is_empty() {

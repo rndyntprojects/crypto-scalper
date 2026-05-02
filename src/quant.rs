@@ -351,6 +351,17 @@ impl QuantEngine {
             }
         }
 
+        // 6. Correlation penalty — reduce size if correlated symbols
+        // already have open returns history (proxy for open positions).
+        {
+            let returns = self.returns.lock();
+            let penalty = self.correlation_cluster_penalty(symbol, &returns);
+            if penalty < 1.0 {
+                size_mult *= penalty;
+                reasons.push(format!("corr-penalty: {:.0}%", penalty * 100.0));
+            }
+        }
+
         QuantSizingResult {
             size_multiplier: size_mult.clamp(0.1, 3.0),
             kelly_fraction: kelly,
@@ -479,5 +490,37 @@ impl QuantEngine {
             }
         }
         0
+    }
+
+    /// Correlation cluster penalty: if other symbols with return data
+    /// are highly correlated with this one, reduce size to avoid
+    /// concentrated risk.  BTC/ETH typically have ρ > 0.8.
+    fn correlation_cluster_penalty(
+        &self,
+        symbol: &str,
+        returns: &HashMap<String, Vec<f64>>,
+    ) -> f64 {
+        let hist = match returns.get(symbol) {
+            Some(h) if h.len() >= 20 => h,
+            _ => return 1.0,
+        };
+
+        // Check correlation with every other symbol that has data.
+        // If any pair has |ρ| > 0.7, apply a 15% penalty per correlated symbol.
+        let mut penalty = 1.0f64;
+        for (other, other_hist) in returns.iter() {
+            if other == symbol || other_hist.len() < 20 {
+                continue;
+            }
+            let n = hist.len().min(other_hist.len()).min(60);
+            let a = &hist[hist.len() - n..];
+            let b = &other_hist[other_hist.len() - n..];
+            if let Some(rho) = crate::portfolio::pearson_correlation(a, b) {
+                if rho.abs() > 0.7 {
+                    penalty *= 0.85; // -15% per correlated symbol
+                }
+            }
+        }
+        penalty
     }
 }
